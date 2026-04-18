@@ -65,68 +65,90 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Upsert companies
-  const companyNameToId = new Map<string, string>();
-  for (const c of companies) {
-    const company = await prisma.clientCompany.upsert({
-      where: {
-        firmId_tallyCompanyName: {
+  const startedAt = Date.now();
+
+  // Batch company upserts in a single transaction.
+  // Empty `update: {}` lets Prisma auto-touch `updatedAt` via @updatedAt.
+  const upsertedCompanies = await prisma.$transaction(
+    companies.map((c) =>
+      prisma.clientCompany.upsert({
+        where: {
+          firmId_tallyCompanyName: {
+            firmId: firm.id,
+            tallyCompanyName: c.tally_name,
+          },
+        },
+        create: {
           firmId: firm.id,
           tallyCompanyName: c.tally_name,
+          displayName: c.tally_name,
         },
-      },
-      create: {
-        firmId: firm.id,
-        tallyCompanyName: c.tally_name,
-        displayName: c.tally_name,
-      },
-      update: { updatedAt: new Date() },
-    });
-    companyNameToId.set(c.tally_name, company.id);
-  }
+        update: {},
+      }),
+    ),
+    { timeout: 60_000 },
+  );
+  const companyNameToId = new Map<string, string>(
+    upsertedCompanies.map((c) => [c.tallyCompanyName, c.id]),
+  );
 
-  // Upsert parties
+  // Batch party upserts in chunks. One big transaction for thousands of rows
+  // ties up a pooler connection for longer than needed and risks timing out;
+  // chunks of 50 strike a balance between round-trip reduction and latency.
+  // `?? undefined` on update branches is intentional: null-from-sync leaves
+  // the stored value alone, so incomplete syncs never clobber good data.
+  const CHUNK = 50;
   let partyCount = 0;
   let skipped = 0;
+  const partyOps: ReturnType<typeof prisma.party.upsert>[] = [];
   for (const p of parties) {
     const companyId = companyNameToId.get(p.company);
     if (!companyId) {
       skipped++;
       continue;
     }
-
-    await prisma.party.upsert({
-      where: {
-        clientCompanyId_tallyLedgerName: {
+    partyOps.push(
+      prisma.party.upsert({
+        where: {
+          clientCompanyId_tallyLedgerName: {
+            clientCompanyId: companyId,
+            tallyLedgerName: p.tally_ledger_name,
+          },
+        },
+        create: {
           clientCompanyId: companyId,
           tallyLedgerName: p.tally_ledger_name,
+          parentGroup: p.parent_group,
+          closingBalance: p.closing_balance,
+          mailingName: p.mailing_name ?? null,
+          address: p.address ?? null,
+          phone: p.phone ?? null,
+          email: p.email ?? null,
+          whatsappNumber: p.whatsapp_number ?? null,
+          lastSyncedAt: syncedAt,
         },
-      },
-      create: {
-        clientCompanyId: companyId,
-        tallyLedgerName: p.tally_ledger_name,
-        parentGroup: p.parent_group,
-        closingBalance: p.closing_balance,
-        mailingName: p.mailing_name ?? null,
-        address: p.address ?? null,
-        phone: p.phone ?? null,
-        email: p.email ?? null,
-        whatsappNumber: p.whatsapp_number ?? null,
-        lastSyncedAt: syncedAt,
-      },
-      update: {
-        parentGroup: p.parent_group,
-        closingBalance: p.closing_balance,
-        mailingName: p.mailing_name ?? undefined,
-        address: p.address ?? undefined,
-        phone: p.phone ?? undefined,
-        email: p.email ?? undefined,
-        whatsappNumber: p.whatsapp_number ?? undefined,
-        lastSyncedAt: syncedAt,
-      },
-    });
+        update: {
+          parentGroup: p.parent_group,
+          closingBalance: p.closing_balance,
+          mailingName: p.mailing_name ?? undefined,
+          address: p.address ?? undefined,
+          phone: p.phone ?? undefined,
+          email: p.email ?? undefined,
+          whatsappNumber: p.whatsapp_number ?? undefined,
+          lastSyncedAt: syncedAt,
+        },
+      }),
+    );
     partyCount++;
   }
+
+  for (let i = 0; i < partyOps.length; i += CHUNK) {
+    await prisma.$transaction(partyOps.slice(i, i + CHUNK), {
+      timeout: 60_000,
+    });
+  }
+
+  const durationMs = Date.now() - startedAt;
 
   return NextResponse.json({
     synced: {
@@ -134,6 +156,7 @@ export async function POST(req: NextRequest) {
       parties: partyCount,
       skipped,
     },
+    durationMs,
     timestamp: new Date().toISOString(),
   });
 }
