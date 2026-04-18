@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -92,60 +94,95 @@ export async function POST(req: NextRequest) {
     upsertedCompanies.map((c) => [c.tallyCompanyName, c.id]),
   );
 
-  // Batch party upserts in chunks. One big transaction for thousands of rows
-  // ties up a pooler connection for longer than needed and risks timing out;
-  // chunks of 50 strike a balance between round-trip reduction and latency.
-  // `?? undefined` on update branches is intentional: null-from-sync leaves
-  // the stored value alone, so incomplete syncs never clobber good data.
-  const CHUNK = 50;
+  // Bulk-upsert parties via raw INSERT ... ON CONFLICT DO UPDATE.
+  // One round-trip per chunk instead of one per party — ~10x faster than
+  // Prisma's per-row upsert over a Tokyo pooler. COALESCE on the UPDATE
+  // branch preserves stored values when the incoming sync has NULL, so
+  // incomplete syncs never clobber good contact data.
+  const CHUNK = 200;
   let partyCount = 0;
   let skipped = 0;
-  const partyOps: ReturnType<typeof prisma.party.upsert>[] = [];
+  type PartyRow = {
+    id: string;
+    clientCompanyId: string;
+    tallyLedgerName: string;
+    parentGroup: string;
+    mailingName: string | null;
+    address: string | null;
+    phone: string | null;
+    email: string | null;
+    whatsappNumber: string | null;
+    closingBalance: number;
+  };
+  const rows: PartyRow[] = [];
   for (const p of parties) {
     const companyId = companyNameToId.get(p.company);
     if (!companyId) {
       skipped++;
       continue;
     }
-    partyOps.push(
-      prisma.party.upsert({
-        where: {
-          clientCompanyId_tallyLedgerName: {
-            clientCompanyId: companyId,
-            tallyLedgerName: p.tally_ledger_name,
-          },
-        },
-        create: {
-          clientCompanyId: companyId,
-          tallyLedgerName: p.tally_ledger_name,
-          parentGroup: p.parent_group,
-          closingBalance: p.closing_balance,
-          mailingName: p.mailing_name ?? null,
-          address: p.address ?? null,
-          phone: p.phone ?? null,
-          email: p.email ?? null,
-          whatsappNumber: p.whatsapp_number ?? null,
-          lastSyncedAt: syncedAt,
-        },
-        update: {
-          parentGroup: p.parent_group,
-          closingBalance: p.closing_balance,
-          mailingName: p.mailing_name ?? undefined,
-          address: p.address ?? undefined,
-          phone: p.phone ?? undefined,
-          email: p.email ?? undefined,
-          whatsappNumber: p.whatsapp_number ?? undefined,
-          lastSyncedAt: syncedAt,
-        },
-      }),
-    );
+    rows.push({
+      id: randomUUID(),
+      clientCompanyId: companyId,
+      tallyLedgerName: p.tally_ledger_name,
+      parentGroup: p.parent_group,
+      mailingName: p.mailing_name ?? null,
+      address: p.address ?? null,
+      phone: p.phone ?? null,
+      email: p.email ?? null,
+      whatsappNumber: p.whatsapp_number ?? null,
+      closingBalance: p.closing_balance,
+    });
     partyCount++;
   }
 
-  for (let i = 0; i < partyOps.length; i += CHUNK) {
-    await prisma.$transaction(partyOps.slice(i, i + CHUNK), {
-      timeout: 60_000,
-    });
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const values = chunk.map(
+      (r) => Prisma.sql`(
+        ${r.id},
+        ${r.clientCompanyId},
+        ${r.tallyLedgerName},
+        ${r.parentGroup},
+        ${r.mailingName},
+        ${r.address},
+        ${r.phone},
+        ${r.email},
+        ${r.whatsappNumber},
+        ${r.closingBalance},
+        ${syncedAt},
+        NOW(),
+        NOW()
+      )`,
+    );
+    await prisma.$executeRaw`
+      INSERT INTO "Party" (
+        "id",
+        "clientCompanyId",
+        "tallyLedgerName",
+        "parentGroup",
+        "mailingName",
+        "address",
+        "phone",
+        "email",
+        "whatsappNumber",
+        "closingBalance",
+        "lastSyncedAt",
+        "createdAt",
+        "updatedAt"
+      )
+      VALUES ${Prisma.join(values, ",")}
+      ON CONFLICT ("clientCompanyId", "tallyLedgerName") DO UPDATE SET
+        "parentGroup" = EXCLUDED."parentGroup",
+        "closingBalance" = EXCLUDED."closingBalance",
+        "mailingName" = COALESCE(EXCLUDED."mailingName", "Party"."mailingName"),
+        "address" = COALESCE(EXCLUDED."address", "Party"."address"),
+        "phone" = COALESCE(EXCLUDED."phone", "Party"."phone"),
+        "email" = COALESCE(EXCLUDED."email", "Party"."email"),
+        "whatsappNumber" = COALESCE(EXCLUDED."whatsappNumber", "Party"."whatsappNumber"),
+        "lastSyncedAt" = EXCLUDED."lastSyncedAt",
+        "updatedAt" = NOW()
+    `;
   }
 
   const durationMs = Date.now() - startedAt;
