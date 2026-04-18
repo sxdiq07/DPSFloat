@@ -178,7 +178,7 @@ def push_to_api(payload: SyncPayload) -> None:
         "Content-Type": "application/json",
     }
     try:
-        r = requests.post(API_URL, json=body, headers=headers, timeout=60)
+        r = requests.post(API_URL, json=body, headers=headers, timeout=300)
         r.raise_for_status()
         log.info(f"Synced to CredFloat API: HTTP {r.status_code}")
         try:
