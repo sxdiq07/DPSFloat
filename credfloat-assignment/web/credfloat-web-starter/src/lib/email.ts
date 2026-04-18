@@ -24,7 +24,7 @@ export interface ReminderVars {
  */
 export function selectTemplate(daysOverdue: number): ReminderTemplate {
   if (daysOverdue <= 0) return "gentle";
-  if (daysOverdue <= 45) return "followup";
+  if (daysOverdue <= 30) return "followup";
   return "final";
 }
 
