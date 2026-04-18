@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { daysOverdue } from "@/lib/ageing";
+import { daysOverdue, getISTToday } from "@/lib/ageing";
 import { sendReminderEmail, selectTemplate } from "@/lib/email";
 import { sendWhatsAppReminder } from "@/lib/whatsapp";
 
@@ -13,9 +13,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const today = new Date();
-  const startOfToday = new Date(today);
-  startOfToday.setHours(0, 0, 0, 0);
+  const today = getISTToday();
+  const startOfToday = today;
 
   let sent = 0;
   let failed = 0;

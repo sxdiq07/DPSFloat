@@ -1,4 +1,19 @@
 import { AgeBucket } from "@prisma/client";
+import { toZonedTime } from "date-fns-tz";
+
+const IST_TZ = "Asia/Kolkata";
+
+/**
+ * Today at 00:00 IST, returned as a Date (UTC epoch under the hood).
+ * Vercel functions run in UTC; using `new Date()` for day math drifts by up
+ * to ~5.5h either side of the IST boundary and makes reminders miss trigger
+ * days. Use this helper as the reference "today" for ageing + reminders.
+ */
+export function getISTToday(): Date {
+  const istNow = toZonedTime(new Date(), IST_TZ);
+  istNow.setHours(0, 0, 0, 0);
+  return istNow;
+}
 
 /**
  * Compute the ageing bucket for an invoice given its due date.
@@ -6,7 +21,10 @@ import { AgeBucket } from "@prisma/client";
  *
  * Uses calendar days between today and dueDate. Positive days = overdue.
  */
-export function computeAgeBucket(dueDate: Date, today: Date = new Date()): AgeBucket {
+export function computeAgeBucket(
+  dueDate: Date,
+  today: Date = getISTToday(),
+): AgeBucket {
   const msPerDay = 24 * 60 * 60 * 1000;
   const daysOverdue = Math.floor(
     (today.getTime() - dueDate.getTime()) / msPerDay,
@@ -22,7 +40,10 @@ export function computeAgeBucket(dueDate: Date, today: Date = new Date()): AgeBu
 /**
  * Days since due date. Negative = not yet due.
  */
-export function daysOverdue(dueDate: Date, today: Date = new Date()): number {
+export function daysOverdue(
+  dueDate: Date,
+  today: Date = getISTToday(),
+): number {
   const msPerDay = 24 * 60 * 60 * 1000;
   return Math.floor((today.getTime() - dueDate.getTime()) / msPerDay);
 }

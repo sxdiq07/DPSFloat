@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { computeAgeBucket } from "@/lib/ageing";
+import { computeAgeBucket, getISTToday } from "@/lib/ageing";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const today = new Date();
+  const today = getISTToday();
   // Load all OPEN invoices and recompute their age bucket.
   // For 300 clients this is typically a few thousand rows — fine for V1.
   // At scale, batch this with SQL CASE expressions.
