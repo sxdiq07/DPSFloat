@@ -4,8 +4,35 @@ import { formatINR, formatINRCompact } from "@/lib/currency";
 import { AGE_BUCKET_LABELS, AGE_BUCKETS_ORDER } from "@/lib/ageing";
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
+import { AnimatedNumber } from "@/components/ui/animated-number";
+import { StatCard } from "@/components/ui/stat-card";
+import { StackedBar } from "@/components/ui/stacked-bar";
 
 export const dynamic = "force-dynamic";
+
+const AGEING_THEME: Record<string, { gradient: string; solid: string }> = {
+  CURRENT: {
+    gradient: "linear-gradient(90deg, #30d158, #34c7b8)",
+    solid: "#30d158",
+  },
+  DAYS_0_30: {
+    gradient: "linear-gradient(90deg, #0a84ff, #5e5ce6)",
+    solid: "#0a84ff",
+  },
+  DAYS_30_60: {
+    gradient: "linear-gradient(90deg, #ffd60a, #ff9f0a)",
+    solid: "#ff9f0a",
+  },
+  DAYS_60_90: {
+    gradient: "linear-gradient(90deg, #ff9f0a, #ff6b3d)",
+    solid: "#ff6b3d",
+  },
+  DAYS_90_PLUS: {
+    gradient: "linear-gradient(90deg, #ff453a, #ff375f)",
+    solid: "#ff453a",
+  },
+};
 
 export default async function OverviewPage() {
   const firmId = await requireFirmId();
@@ -18,6 +45,8 @@ export default async function OverviewPage() {
     ageingBuckets,
     topClientTotals,
     topClientOverdue,
+    partyCount,
+    clientCount,
   ] = await Promise.all([
     prisma.invoice.aggregate({
       where: { clientCompany: { firmId }, status: "OPEN" },
@@ -67,21 +96,23 @@ export default async function OverviewPage() {
       },
       _sum: { outstandingAmount: true },
     }),
+    prisma.party.count({ where: { clientCompany: { firmId } } }),
+    prisma.clientCompany.count({ where: { firmId } }),
   ]);
 
   const totalOutstanding = Number(totalOutstandingAgg._sum.outstandingAmount ?? 0);
   const overdue90 = Number(overdue90Agg._sum.outstandingAmount ?? 0);
   const collectionsThisMonth = Number(collectionsAgg._sum.amount ?? 0);
 
-  const ageingData = AGE_BUCKETS_ORDER.map((bucket) => {
-    const found = ageingBuckets.find((b) => b.ageBucket === bucket);
-    return {
-      bucket,
-      label: AGE_BUCKET_LABELS[bucket],
-      amount: Number(found?._sum.outstandingAmount ?? 0),
-    };
-  });
-  const maxAgeing = Math.max(1, ...ageingData.map((d) => d.amount));
+  const ageingData = AGE_BUCKETS_ORDER.map((bucket) => ({
+    key: bucket,
+    label: AGE_BUCKET_LABELS[bucket],
+    value: Number(
+      ageingBuckets.find((b) => b.ageBucket === bucket)?._sum.outstandingAmount ?? 0,
+    ),
+    gradient: AGEING_THEME[bucket].gradient,
+    solid: AGEING_THEME[bucket].solid,
+  }));
 
   const topClientIds = topClientTotals.map((t) => t.clientCompanyId);
   const topClientMeta = await prisma.clientCompany.findMany({
@@ -103,230 +134,219 @@ export default async function OverviewPage() {
     };
   });
 
+  const maxOutstanding = Math.max(1, ...topClientsRanked.map((c) => c.outstanding));
+
   return (
-    <div className="space-y-12">
-      {/* Hero */}
-      <section>
-        <p className="text-[13px] font-medium uppercase tracking-[0.14em] text-ink-3">
-          Firm overview
-        </p>
-        <h1 className="mt-3 text-display-lg font-semibold text-ink">
-          {formatINRCompact(totalOutstanding)}
-        </h1>
-        <p className="mt-3 text-[17px] text-ink-2">
-          in receivables across all managed clients ·{" "}
-          <span className="text-ink-3">{formatINR(totalOutstanding)}</span>
-        </p>
+    <div className="space-y-14">
+      <PageHeader
+        eyebrow="Firm overview"
+        title="Receivables"
+        subtitle={
+          <>
+            Tracking {formatINRCompact(totalOutstanding)} across {clientCount}{" "}
+            client {clientCount === 1 ? "company" : "companies"} and{" "}
+            {partyCount.toLocaleString("en-IN")} debtor{" "}
+            {partyCount === 1 ? "ledger" : "ledgers"}.
+          </>
+        }
+      />
+
+      {/* Hero number — huge, animated */}
+      <section className="card-apple relative overflow-hidden p-10">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -left-20 -top-20 h-80 w-80 rounded-full opacity-40 blur-3xl"
+          style={{
+            background:
+              "radial-gradient(circle, rgba(0,113,227,0.28), transparent 70%)",
+          }}
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -bottom-24 -right-20 h-80 w-80 rounded-full opacity-30 blur-3xl"
+          style={{
+            background:
+              "radial-gradient(circle, rgba(191,90,242,0.22), transparent 70%)",
+          }}
+        />
+        <div className="relative">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3">
+            Total outstanding receivables
+          </p>
+          <div
+            className="tabular mt-4 font-semibold leading-none tracking-tightest text-ink"
+            style={{ fontSize: "clamp(56px, 8vw, 88px)" }}
+          >
+            <span style={{ opacity: 0.5, fontWeight: 300, marginRight: "0.08em" }}>
+              ₹
+            </span>
+            <AnimatedNumber
+              value={totalOutstanding}
+              duration={1100}
+                />
+          </div>
+          <p className="mt-5 text-[14px] text-ink-3">
+            Updated live from every {clientCount > 0 ? "managed" : "synced"} client.
+          </p>
+        </div>
       </section>
 
-      {/* KPI tiles */}
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Kpi
+      {/* KPI strip */}
+      <section className="grid grid-cols-1 gap-5 md:grid-cols-3">
+        <StatCard
           label="Overdue 90+ days"
-          value={formatINRCompact(overdue90)}
-          sub={formatINR(overdue90)}
+          value={overdue90}
           tone="danger"
+          prefix="₹"
+          sub="Oldest receivables carrying the most risk"
         />
-        <Kpi
+        <StatCard
           label="Collections this month"
-          value={formatINRCompact(collectionsThisMonth)}
-          sub={formatINR(collectionsThisMonth)}
+          value={collectionsThisMonth}
           tone="success"
+          prefix="₹"
+          sub="Receipts matched against open invoices"
         />
-        <Kpi
+        <StatCard
           label="Reminders sent today"
-          value={`${remindersToday}`}
-          sub="across email, SMS, WhatsApp"
-          tone="neutral"
+          value={remindersToday}
+          tone="accent"
+          animate={false}
+          sub="Email, SMS and WhatsApp combined"
         />
       </section>
 
       {/* Ageing distribution */}
-      <section className="card-apple p-8">
-        <div className="mb-6 flex items-end justify-between">
+      <section className="card-apple p-10">
+        <div className="mb-8 flex items-end justify-between gap-6">
           <div>
-            <h2 className="text-[22px] font-semibold tracking-tight text-ink">
-              Ageing distribution
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3">
+              Ageing analysis
+            </p>
+            <h2 className="mt-2 text-[26px] font-semibold tracking-tight text-ink">
+              Outstanding by days overdue
             </h2>
-            <p className="mt-1 text-[14px] text-ink-3">
-              Outstanding by days since due date.
+            <p className="mt-1.5 max-w-xl text-[14px] leading-relaxed text-ink-3">
+              Single glance at how much of the book sits in each bucket. Hover
+              any segment to isolate it.
             </p>
           </div>
         </div>
-        <div className="space-y-5">
-          {ageingData.map((d) => (
-            <div key={d.bucket}>
-              <div className="mb-2 flex items-baseline justify-between">
-                <span className="text-[14px] font-medium text-ink-2">
-                  {d.label}
-                </span>
-                <span className="tabular text-[14px] font-medium text-ink">
-                  {formatINR(d.amount)}
-                </span>
-              </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
-                <div
-                  className="h-full rounded-full transition-all duration-700 ease-apple"
-                  style={{
-                    width: `${(d.amount / maxAgeing) * 100}%`,
-                    background: ageingGradientFor(d.bucket),
-                  }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
+        <StackedBar segments={ageingData} />
       </section>
 
       {/* Top clients */}
       <section className="card-apple overflow-hidden">
-        <div className="flex items-end justify-between px-8 pt-7 pb-5">
+        <div className="flex items-end justify-between gap-6 px-10 pt-9 pb-6">
           <div>
-            <h2 className="text-[22px] font-semibold tracking-tight text-ink">
-              Top clients by outstanding
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3">
+              Top clients
+            </p>
+            <h2 className="mt-2 text-[26px] font-semibold tracking-tight text-ink">
+              Where the book is concentrated
             </h2>
-            <p className="mt-1 text-[14px] text-ink-3">
-              Ranked in SQL; reflects every OPEN invoice across managed clients.
+            <p className="mt-1.5 text-[14px] text-ink-3">
+              Ranked in SQL by total outstanding · refreshes on every load.
             </p>
           </div>
           <Link
             href="/clients"
-            className="inline-flex items-center gap-1 text-[13px] font-medium text-[hsl(var(--accent-blue))] hover:underline"
+            className="inline-flex items-center gap-1 text-[13px] font-medium text-[var(--color-accent-blue)] transition-colors hover:text-[var(--color-accent-blue-hover)]"
           >
-            View all
+            All clients
             <ArrowUpRight className="h-3.5 w-3.5" />
           </Link>
         </div>
 
         {topClientsRanked.length === 0 ? (
-          <EmptyState />
+          <div className="border-t border-subtle px-10 py-16 text-center">
+            <p className="text-[15px] text-ink-2">No client data yet.</p>
+            <p className="mt-1 text-[13px] text-ink-3">
+              Run the Tally connector to sync data.
+            </p>
+          </div>
         ) : (
-          <div className="overflow-hidden border-t border-subtle">
-            <table className="w-full text-[14px]">
-              <thead>
-                <tr className="text-[11px] uppercase tracking-[0.08em] text-ink-3">
-                  <th className="px-8 py-3 text-left font-medium">Client</th>
-                  <th className="px-8 py-3 text-right font-medium">
-                    Outstanding
-                  </th>
-                  <th className="px-8 py-3 text-right font-medium">Overdue 60+</th>
-                  <th className="px-8 py-3 text-right font-medium">Debtors</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topClientsRanked.map((c, i) => (
-                  <tr
-                    key={c.id}
-                    className={`row-interactive ${i > 0 ? "border-t border-subtle" : ""}`}
+          <div className="border-t border-subtle">
+            {topClientsRanked.map((c, i) => {
+              const initials = c.name
+                .split(" ")
+                .slice(0, 2)
+                .map((w) => w[0])
+                .join("")
+                .toUpperCase();
+              const widthPct = (c.outstanding / maxOutstanding) * 100;
+              return (
+                <Link
+                  key={c.id}
+                  href={`/clients/${c.id}`}
+                  className={`group relative flex items-center gap-5 px-10 py-5 transition-colors hover:bg-[var(--color-surface-2)]/60 ${i > 0 ? "border-t border-subtle" : ""}`}
+                >
+                  {/* Accent bar */}
+                  <div
+                    aria-hidden
+                    className="absolute left-0 top-0 h-full w-[3px] origin-top scale-y-0 transition-transform duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] group-hover:scale-y-100"
+                    style={{ background: "var(--color-accent-blue)" }}
+                  />
+
+                  {/* Initials avatar */}
+                  <div
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[13px] font-semibold text-white"
+                    style={{
+                      background: `linear-gradient(135deg, hsl(${(i * 47) % 360} 70% 55%), hsl(${(i * 47 + 30) % 360} 80% 45%))`,
+                    }}
+                    aria-hidden
                   >
-                    <td className="px-8 py-4">
-                      <Link
-                        href={`/clients/${c.id}`}
-                        className="font-medium text-ink hover:text-[hsl(var(--accent-blue))]"
-                      >
+                    {initials}
+                  </div>
+
+                  {/* Name + debtor count + bar */}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-4">
+                      <div className="truncate text-[15px] font-medium text-ink group-hover:text-[var(--color-accent-blue)]">
                         {c.name}
-                      </Link>
-                    </td>
-                    <td className="tabular px-8 py-4 text-right font-medium text-ink">
-                      {formatINR(c.outstanding)}
-                    </td>
-                    <td className="tabular px-8 py-4 text-right">
-                      {c.overdue > 0 ? (
-                        <span
-                          style={{ color: "hsl(4 72% 45%)" }}
-                          className="font-medium"
-                        >
-                          {formatINR(c.overdue)}
+                      </div>
+                      <div className="tabular shrink-0 text-[15px] font-semibold text-ink">
+                        {formatINR(c.outstanding)}
+                      </div>
+                    </div>
+                    <div className="mt-2 flex items-center gap-4">
+                      <div className="h-1 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-2)]">
+                        <div
+                          className="h-full rounded-full transition-all duration-700 ease-[cubic-bezier(0.2,0.8,0.2,1)]"
+                          style={{
+                            width: `${widthPct}%`,
+                            background:
+                              c.overdue > 0
+                                ? "linear-gradient(90deg, #ff9f0a, #ff453a)"
+                                : "linear-gradient(90deg, #0a84ff, #5e5ce6)",
+                          }}
+                        />
+                      </div>
+                      <div className="flex shrink-0 items-center gap-3 text-[12px] text-ink-3">
+                        <span className="tabular">
+                          {c.debtorCount} debtor
+                          {c.debtorCount === 1 ? "" : "s"}
                         </span>
-                      ) : (
-                        <span className="text-ink-3">—</span>
-                      )}
-                    </td>
-                    <td className="tabular px-8 py-4 text-right text-ink-2">
-                      {c.debtorCount}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                        {c.overdue > 0 && (
+                          <span
+                            className="pill tabular"
+                            style={{
+                              background: "rgba(255,69,58,0.08)",
+                              color: "#c6373a",
+                            }}
+                          >
+                            {formatINRCompact(c.overdue)} overdue
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         )}
       </section>
-    </div>
-  );
-}
-
-function Kpi({
-  label,
-  value,
-  sub,
-  tone,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  tone: "danger" | "success" | "neutral";
-}) {
-  const accent =
-    tone === "danger"
-      ? "hsl(4 72% 45%)"
-      : tone === "success"
-        ? "hsl(142 64% 36%)"
-        : "hsl(var(--ink))";
-  const dotGradient =
-    tone === "danger"
-      ? "linear-gradient(135deg, hsl(4 100% 62%), hsl(14 95% 58%))"
-      : tone === "success"
-        ? "linear-gradient(135deg, hsl(142 70% 45%), hsl(168 75% 42%))"
-        : "linear-gradient(135deg, hsl(211 100% 44%), hsl(260 75% 55%))";
-
-  return (
-    <div className="card-apple p-7">
-      <div className="mb-4 flex items-center justify-between">
-        <span className="text-[12px] font-medium uppercase tracking-[0.08em] text-ink-3">
-          {label}
-        </span>
-        <span
-          aria-hidden
-          className="h-2.5 w-2.5 rounded-full"
-          style={{ background: dotGradient }}
-        />
-      </div>
-      <div
-        className="tabular text-[32px] font-semibold leading-none tracking-tight"
-        style={{ color: accent }}
-      >
-        {value}
-      </div>
-      <div className="mt-2 text-[13px] text-ink-3">{sub}</div>
-    </div>
-  );
-}
-
-function ageingGradientFor(bucket: string): string {
-  switch (bucket) {
-    case "CURRENT":
-      return "linear-gradient(90deg, hsl(142 70% 45%), hsl(168 75% 42%))";
-    case "DAYS_0_30":
-      return "linear-gradient(90deg, hsl(211 100% 50%), hsl(200 100% 48%))";
-    case "DAYS_30_60":
-      return "linear-gradient(90deg, hsl(44 100% 50%), hsl(32 100% 52%))";
-    case "DAYS_60_90":
-      return "linear-gradient(90deg, hsl(22 100% 52%), hsl(14 95% 55%))";
-    case "DAYS_90_PLUS":
-      return "linear-gradient(90deg, hsl(4 100% 62%), hsl(350 85% 55%))";
-    default:
-      return "hsl(var(--ink-3))";
-  }
-}
-
-function EmptyState() {
-  return (
-    <div className="px-8 py-16 text-center">
-      <p className="text-[15px] text-ink-2">No client data yet.</p>
-      <p className="mt-1 text-[13px] text-ink-3">
-        Run the Tally connector to sync data.
-      </p>
     </div>
   );
 }

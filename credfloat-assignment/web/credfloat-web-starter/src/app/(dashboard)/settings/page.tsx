@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireFirmId } from "@/lib/session";
 import { formatDistanceToNow } from "date-fns";
+import { PageHeader } from "@/components/ui/page-header";
 
 export const dynamic = "force-dynamic";
 
@@ -24,15 +25,11 @@ export default async function SettingsPage() {
 
   return (
     <div className="space-y-10">
-      <section>
-        <p className="text-[13px] font-medium uppercase tracking-[0.14em] text-ink-3">
-          Administration
-        </p>
-        <h1 className="mt-2 text-display font-semibold text-ink">Settings</h1>
-        <p className="mt-2 text-[15px] text-ink-3">
-          Firm information, sync health, and staff access.
-        </p>
-      </section>
+      <PageHeader
+        eyebrow="Administration"
+        title="Settings"
+        subtitle="Firm information, sync health, and staff access."
+      />
 
       {/* Firm */}
       <section className="card-apple p-8">

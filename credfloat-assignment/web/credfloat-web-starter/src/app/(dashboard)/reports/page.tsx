@@ -1,17 +1,14 @@
 import { BarChart3, TrendingUp, Users } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 export default function ReportsPage() {
   return (
     <div className="space-y-10">
-      <section>
-        <p className="text-[13px] font-medium uppercase tracking-[0.14em] text-ink-3">
-          Insights
-        </p>
-        <h1 className="mt-2 text-display font-semibold text-ink">Reports</h1>
-        <p className="mt-2 text-[15px] text-ink-3">
-          Collection velocity, ageing trends, and per-client performance.
-        </p>
-      </section>
+      <PageHeader
+        eyebrow="Insights"
+        title="Reports"
+        subtitle="Collection velocity, ageing trends, and per-client performance."
+      />
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <PreviewCard

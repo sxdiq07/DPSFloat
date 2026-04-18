@@ -4,8 +4,8 @@ import { formatINR } from "@/lib/currency";
 import { AGE_BUCKET_LABELS } from "@/lib/ageing";
 import { notFound } from "next/navigation";
 import { formatInTimeZone } from "date-fns-tz";
-import Link from "next/link";
-import { ArrowLeft, Mail, Phone, MessageCircle, MapPin } from "lucide-react";
+import { Mail, Phone, MessageCircle, MapPin } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 export const dynamic = "force-dynamic";
 
@@ -44,27 +44,20 @@ export default async function ClientDetailPage({
 
   return (
     <div className="space-y-10">
-      <Link
-        href="/clients"
-        className="inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-3 transition-colors hover:text-ink"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" />
-        All clients
-      </Link>
-
-      {/* Hero */}
-      <section>
-        <p className="text-[13px] font-medium uppercase tracking-[0.14em] text-ink-3">
-          Client company
-        </p>
-        <h1 className="mt-2 text-display font-semibold text-ink">
-          {client.displayName}
-        </h1>
-        <p className="mt-1 text-[14px] text-ink-3">
-          Tally ledger name ·{" "}
-          <span className="tabular">{client.tallyCompanyName}</span>
-        </p>
-      </section>
+      <PageHeader
+        crumbs={[
+          { label: "Clients", href: "/clients" },
+          { label: client.displayName },
+        ]}
+        eyebrow="Client company"
+        title={client.displayName}
+        subtitle={
+          <>
+            Tally ledger name ·{" "}
+            <span className="tabular">{client.tallyCompanyName}</span>
+          </>
+        }
+      />
 
       {/* KPI tiles */}
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">

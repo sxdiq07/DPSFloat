@@ -4,6 +4,7 @@ import { formatINR } from "@/lib/currency";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import { ChevronRight } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 export const dynamic = "force-dynamic";
 
@@ -44,21 +45,17 @@ export default async function ClientsPage() {
   });
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-end justify-between">
-        <div>
-          <p className="text-[13px] font-medium uppercase tracking-[0.14em] text-ink-3">
-            Portfolio
-          </p>
-          <h1 className="mt-2 text-[34px] font-semibold leading-tight tracking-tightest text-ink">
-            Clients
-          </h1>
-          <p className="mt-1 text-[15px] text-ink-3">
+    <div className="space-y-10">
+      <PageHeader
+        eyebrow="Portfolio"
+        title="Clients"
+        subtitle={
+          <>
             {rows.length} client {rows.length === 1 ? "company" : "companies"}{" "}
-            under management
-          </p>
-        </div>
-      </div>
+            under management. Click any row to drill into debtors and invoices.
+          </>
+        }
+      />
 
       <div className="card-apple overflow-hidden">
         {rows.length === 0 ? (
