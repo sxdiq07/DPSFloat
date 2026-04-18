@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { NavLinks } from "./_components/nav-links";
 import { CommandMenu } from "./_components/command-menu";
 import { SyncHealthDot } from "./_components/sync-health-dot";
+import { KeyboardShortcuts } from "./_components/keyboard-shortcuts";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 export default async function DashboardLayout({
@@ -110,8 +111,13 @@ export default async function DashboardLayout({
         <kbd className="rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-surface-3)] px-1.5 py-0.5 font-mono text-[10px]">
           ⌘K
         </kbd>{" "}
-        to search
+        to search ·{" "}
+        <kbd className="rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-surface-3)] px-1.5 py-0.5 font-mono text-[10px]">
+          ?
+        </kbd>{" "}
+        for shortcuts
       </footer>
+      <KeyboardShortcuts />
     </div>
   );
 }
