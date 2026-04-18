@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ThemeProvider } from "@/components/theme-provider";
+import { Toaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
   title: "CredFloat — DPS & Co",
@@ -16,9 +18,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className="min-h-screen bg-surface text-ink antialiased">
-        {children}
+        <ThemeProvider>
+          {children}
+          <Toaster position="bottom-right" closeButton richColors />
+        </ThemeProvider>
       </body>
     </html>
   );

@@ -6,6 +6,8 @@ import { notFound } from "next/navigation";
 import { formatInTimeZone } from "date-fns-tz";
 import { Mail, Phone, MessageCircle, MapPin } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { StatCard } from "@/components/ui/stat-card";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +28,11 @@ export default async function ClientDetailPage({
         include: { party: true },
         orderBy: [{ ageBucket: "desc" }, { dueDate: "asc" }],
       },
+      remindersSent: {
+        include: { party: true, invoice: true },
+        orderBy: { sentAt: "desc" },
+        take: 100,
+      },
     },
   });
 
@@ -41,6 +48,14 @@ export default async function ClientDetailPage({
   const reachable = partiesWithBalance.filter(
     (p) => p.email || p.phone || p.whatsappNumber,
   ).length;
+  const reachablePct =
+    partiesWithBalance.length === 0
+      ? 0
+      : Math.round((reachable / partiesWithBalance.length) * 100);
+
+  const withEmail = partiesWithBalance.filter((p) => p.email).length;
+  const withWhatsApp = partiesWithBalance.filter((p) => p.whatsappNumber).length;
+  const withPhone = partiesWithBalance.filter((p) => p.phone).length;
 
   return (
     <div className="space-y-10">
@@ -60,178 +75,302 @@ export default async function ClientDetailPage({
       />
 
       {/* KPI tiles */}
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <MiniKpi
+      <section className="grid grid-cols-1 gap-5 md:grid-cols-3">
+        <StatCard
           label="Total outstanding"
-          value={formatINR(totalOutstanding)}
+          value={totalOutstanding}
           tone="neutral"
+          prefix="₹"
+          sub={`${client.invoices.length} open invoice${client.invoices.length === 1 ? "" : "s"}`}
         />
-        <MiniKpi
-          label="Open invoices"
-          value={`${client.invoices.length}`}
-          tone="neutral"
-        />
-        <MiniKpi
+        <StatCard
           label="Debtors with balance"
-          value={`${partiesWithBalance.length}`}
-          sub={`${reachable} digitally reachable`}
+          value={partiesWithBalance.length}
           tone="neutral"
+          sub={`${client.parties.length} total ledgers synced`}
+        />
+        <StatCard
+          label="Digitally reachable"
+          value={reachable}
+          tone={reachablePct >= 50 ? "success" : reachablePct >= 20 ? "accent" : "danger"}
+          suffix={` / ${partiesWithBalance.length}`}
+          sub={`${reachablePct}% have email, WhatsApp or phone on file`}
         />
       </section>
 
-      {/* Debtors */}
-      <section className="card-apple overflow-hidden">
-        <div className="flex items-end justify-between px-8 pt-7 pb-5">
-          <div>
-            <h2 className="text-[22px] font-semibold tracking-tight text-ink">
-              Debtors
-            </h2>
-            <p className="mt-1 text-[14px] text-ink-3">
-              {partiesWithBalance.length} with outstanding balance, sorted by
-              amount.
-            </p>
+      {/* Contact coverage insight */}
+      {partiesWithBalance.length > 0 && (
+        <section className="card-apple p-8">
+          <div className="flex items-end justify-between gap-6">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3">
+                Contact coverage
+              </p>
+              <h2 className="mt-2 text-[22px] font-semibold tracking-tight text-ink">
+                Reachability by channel
+              </h2>
+              <p className="mt-1 text-[13px] text-ink-3">
+                Counts of debtors with each contact channel populated from Tally.
+              </p>
+            </div>
           </div>
-        </div>
-        {partiesWithBalance.length === 0 ? (
-          <div className="border-t border-subtle px-8 py-16 text-center">
-            <p className="text-[15px] text-ink-2">No outstanding debtors.</p>
+          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <ChannelBar
+              label="Email"
+              icon={<Mail className="h-3.5 w-3.5" />}
+              count={withEmail}
+              total={partiesWithBalance.length}
+              gradient="linear-gradient(90deg, #0a84ff, #5e5ce6)"
+            />
+            <ChannelBar
+              label="WhatsApp"
+              icon={<MessageCircle className="h-3.5 w-3.5" />}
+              count={withWhatsApp}
+              total={partiesWithBalance.length}
+              gradient="linear-gradient(90deg, #30d158, #34c7b8)"
+            />
+            <ChannelBar
+              label="Phone"
+              icon={<Phone className="h-3.5 w-3.5" />}
+              count={withPhone}
+              total={partiesWithBalance.length}
+              gradient="linear-gradient(90deg, #ff9f0a, #ff6b3d)"
+            />
           </div>
-        ) : (
-          <div className="border-t border-subtle">
-            <table className="w-full text-[14px]">
-              <thead>
-                <tr className="text-[11px] uppercase tracking-[0.08em] text-ink-3">
-                  <th className="px-8 py-3 text-left font-medium">Name</th>
-                  <th className="px-8 py-3 text-left font-medium">
-                    Reachable via
-                  </th>
-                  <th className="px-8 py-3 text-right font-medium">
-                    Outstanding
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {partiesWithBalance.map((p, i) => (
-                  <tr
-                    key={p.id}
-                    className={`row-interactive ${i > 0 ? "border-t border-subtle" : "border-t border-subtle"}`}
-                  >
-                    <td className="px-8 py-4 font-medium text-ink">
-                      {p.mailingName || p.tallyLedgerName}
-                    </td>
-                    <td className="px-8 py-4">
-                      <ContactIcons
-                        email={p.email}
-                        phone={p.phone}
-                        whatsapp={p.whatsappNumber}
-                        address={p.address}
-                      />
-                    </td>
-                    <td className="tabular px-8 py-4 text-right font-medium text-ink">
-                      {formatINR(Number(p.closingBalance))}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+        </section>
+      )}
 
-      {/* Invoices */}
-      <section className="card-apple overflow-hidden">
-        <div className="px-8 pt-7 pb-5">
-          <h2 className="text-[22px] font-semibold tracking-tight text-ink">
-            Open invoices
-          </h2>
-          <p className="mt-1 text-[14px] text-ink-3">
-            Ageing is recomputed daily by the cron job.
-          </p>
-        </div>
-        {client.invoices.length === 0 ? (
-          <div className="border-t border-subtle px-8 py-16 text-center">
-            <p className="text-[15px] text-ink-2">No open invoices.</p>
-            <p className="mt-1 text-[13px] text-ink-3">
-              Bill-wise sync requires Tally XML HTTP (Phase 2 work).
-            </p>
-          </div>
-        ) : (
-          <div className="border-t border-subtle">
-            <table className="w-full text-[14px]">
-              <thead>
-                <tr className="text-[11px] uppercase tracking-[0.08em] text-ink-3">
-                  <th className="px-8 py-3 text-left font-medium">Bill ref</th>
-                  <th className="px-8 py-3 text-left font-medium">Debtor</th>
-                  <th className="px-8 py-3 text-left font-medium">Bill date</th>
-                  <th className="px-8 py-3 text-left font-medium">Due date</th>
-                  <th className="px-8 py-3 text-right font-medium">Amount</th>
-                  <th className="px-8 py-3 text-left font-medium">Age</th>
-                </tr>
-              </thead>
-              <tbody>
-                {client.invoices.map((inv, i) => (
-                  <tr
-                    key={inv.id}
-                    className={`row-interactive ${i > 0 ? "border-t border-subtle" : "border-t border-subtle"}`}
-                  >
-                    <td className="px-8 py-4 font-medium text-ink">
-                      {inv.billRef}
-                    </td>
-                    <td className="px-8 py-4 text-ink-2">
-                      {inv.party.mailingName || inv.party.tallyLedgerName}
-                    </td>
-                    <td className="tabular px-8 py-4 text-ink-3">
-                      {formatInTimeZone(
-                        inv.billDate,
-                        "Asia/Kolkata",
-                        "dd MMM yyyy",
-                      )}
-                    </td>
-                    <td className="tabular px-8 py-4 text-ink-3">
-                      {inv.dueDate
-                        ? formatInTimeZone(
-                            inv.dueDate,
-                            "Asia/Kolkata",
-                            "dd MMM yyyy",
-                          )
-                        : "—"}
-                    </td>
-                    <td className="tabular px-8 py-4 text-right font-medium text-ink">
-                      {formatINR(Number(inv.outstandingAmount))}
-                    </td>
-                    <td className="px-8 py-4">
-                      <AgePill bucket={inv.ageBucket} />
-                    </td>
+      {/* Tabs: Debtors / Invoices / Reminders */}
+      <Tabs defaultValue="debtors" className="space-y-5">
+        <TabsList className="bg-[var(--color-surface-2)]">
+          <TabsTrigger value="debtors">
+            Debtors
+            <span className="ml-2 text-[11px] text-ink-3">
+              {partiesWithBalance.length}
+            </span>
+          </TabsTrigger>
+          <TabsTrigger value="invoices">
+            Invoices
+            <span className="ml-2 text-[11px] text-ink-3">
+              {client.invoices.length}
+            </span>
+          </TabsTrigger>
+          <TabsTrigger value="reminders">
+            Reminder log
+            <span className="ml-2 text-[11px] text-ink-3">
+              {client.remindersSent.length}
+            </span>
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="debtors" className="m-0">
+          <div className="card-apple overflow-hidden">
+            {partiesWithBalance.length === 0 ? (
+              <EmptyRow
+                title="No outstanding debtors"
+                body="Every synced ledger has a zero or credit balance."
+              />
+            ) : (
+              <table className="w-full text-[14px]">
+                <thead>
+                  <tr className="text-[11px] uppercase tracking-[0.08em] text-ink-3">
+                    <th className="px-8 py-4 text-left font-medium">Name</th>
+                    <th className="px-8 py-4 text-left font-medium">
+                      Reachable via
+                    </th>
+                    <th className="px-8 py-4 text-right font-medium">
+                      Outstanding
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {partiesWithBalance.map((p, i) => (
+                    <tr
+                      key={p.id}
+                      className={`row-interactive ${i > 0 ? "border-t border-subtle" : "border-t border-subtle"}`}
+                    >
+                      <td className="px-8 py-4 font-medium text-ink">
+                        {p.mailingName || p.tallyLedgerName}
+                      </td>
+                      <td className="px-8 py-4">
+                        <ContactIcons
+                          email={p.email}
+                          phone={p.phone}
+                          whatsapp={p.whatsappNumber}
+                          address={p.address}
+                        />
+                      </td>
+                      <td className="tabular px-8 py-4 text-right font-medium text-ink">
+                        {formatINR(Number(p.closingBalance))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
-        )}
-      </section>
+        </TabsContent>
+
+        <TabsContent value="invoices" className="m-0">
+          <div className="card-apple overflow-hidden">
+            {client.invoices.length === 0 ? (
+              <EmptyRow
+                title="No open invoices yet"
+                body="Bill-wise invoice sync requires Tally XML HTTP (Phase 2)."
+              />
+            ) : (
+              <table className="w-full text-[14px]">
+                <thead>
+                  <tr className="text-[11px] uppercase tracking-[0.08em] text-ink-3">
+                    <th className="px-8 py-4 text-left font-medium">Bill ref</th>
+                    <th className="px-8 py-4 text-left font-medium">Debtor</th>
+                    <th className="px-8 py-4 text-left font-medium">Bill date</th>
+                    <th className="px-8 py-4 text-left font-medium">Due date</th>
+                    <th className="px-8 py-4 text-right font-medium">Amount</th>
+                    <th className="px-8 py-4 text-left font-medium">Age</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {client.invoices.map((inv, i) => (
+                    <tr
+                      key={inv.id}
+                      className={`row-interactive ${i > 0 ? "border-t border-subtle" : "border-t border-subtle"}`}
+                    >
+                      <td className="px-8 py-4 font-medium text-ink">
+                        {inv.billRef}
+                      </td>
+                      <td className="px-8 py-4 text-ink-2">
+                        {inv.party.mailingName || inv.party.tallyLedgerName}
+                      </td>
+                      <td className="tabular px-8 py-4 text-ink-3">
+                        {formatInTimeZone(
+                          inv.billDate,
+                          "Asia/Kolkata",
+                          "dd MMM yyyy",
+                        )}
+                      </td>
+                      <td className="tabular px-8 py-4 text-ink-3">
+                        {inv.dueDate
+                          ? formatInTimeZone(
+                              inv.dueDate,
+                              "Asia/Kolkata",
+                              "dd MMM yyyy",
+                            )
+                          : "—"}
+                      </td>
+                      <td className="tabular px-8 py-4 text-right font-medium text-ink">
+                        {formatINR(Number(inv.outstandingAmount))}
+                      </td>
+                      <td className="px-8 py-4">
+                        <AgePill bucket={inv.ageBucket} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="reminders" className="m-0">
+          <div className="card-apple overflow-hidden">
+            {client.remindersSent.length === 0 ? (
+              <EmptyRow
+                title="No reminders sent yet"
+                body="Reminders will appear here once the cron fires for a trigger day."
+              />
+            ) : (
+              <table className="w-full text-[14px]">
+                <thead>
+                  <tr className="text-[11px] uppercase tracking-[0.08em] text-ink-3">
+                    <th className="px-8 py-4 text-left font-medium">Sent</th>
+                    <th className="px-8 py-4 text-left font-medium">Debtor</th>
+                    <th className="px-8 py-4 text-left font-medium">Invoice</th>
+                    <th className="px-8 py-4 text-left font-medium">Channel</th>
+                    <th className="px-8 py-4 text-left font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {client.remindersSent.map((r, i) => (
+                    <tr
+                      key={r.id}
+                      className={`row-interactive ${i > 0 ? "border-t border-subtle" : "border-t border-subtle"}`}
+                    >
+                      <td className="tabular px-8 py-4 text-ink-3">
+                        {formatInTimeZone(
+                          r.sentAt,
+                          "Asia/Kolkata",
+                          "dd MMM yyyy, HH:mm",
+                        )}
+                      </td>
+                      <td className="px-8 py-4 text-ink-2">
+                        {r.party.mailingName || r.party.tallyLedgerName}
+                      </td>
+                      <td className="px-8 py-4 text-ink-2">
+                        {r.invoice.billRef}
+                      </td>
+                      <td className="px-8 py-4">
+                        <ChannelPill channel={r.channel} />
+                      </td>
+                      <td className="px-8 py-4">
+                        <StatusPill status={r.status} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
 
-function MiniKpi({
+function EmptyRow({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="px-10 py-16 text-center">
+      <p className="text-[15px] font-medium text-ink">{title}</p>
+      <p className="mx-auto mt-1.5 max-w-md text-[13px] text-ink-3">{body}</p>
+    </div>
+  );
+}
+
+function ChannelBar({
   label,
-  value,
-  sub,
+  icon,
+  count,
+  total,
+  gradient,
 }: {
   label: string;
-  value: string;
-  sub?: string;
-  tone: "neutral";
+  icon: React.ReactNode;
+  count: number;
+  total: number;
+  gradient: string;
 }) {
+  const pct = total === 0 ? 0 : (count / total) * 100;
   return (
-    <div className="card-apple p-6">
-      <div className="text-[12px] font-medium uppercase tracking-[0.08em] text-ink-3">
-        {label}
+    <div>
+      <div className="mb-2 flex items-baseline justify-between">
+        <div className="inline-flex items-center gap-1.5 text-[12px] font-medium text-ink-2">
+          <span className="text-ink-3">{icon}</span>
+          {label}
+        </div>
+        <div className="tabular text-[13px] font-semibold text-ink">
+          {count}
+          <span className="ml-1 text-ink-3">/ {total}</span>
+        </div>
       </div>
-      <div className="tabular mt-3 text-[26px] font-semibold leading-none tracking-tight text-ink">
-        {value}
+      <div className="h-1.5 overflow-hidden rounded-full bg-[var(--color-surface-2)]">
+        <div
+          className="h-full rounded-full transition-all duration-700 ease-[cubic-bezier(0.2,0.8,0.2,1)]"
+          style={{ width: `${pct}%`, background: gradient }}
+        />
       </div>
-      {sub && <div className="mt-2 text-[12px] text-ink-3">{sub}</div>}
+      <div className="tabular mt-1 text-[11px] text-ink-3">
+        {pct.toFixed(1)}%
+      </div>
     </div>
   );
 }
@@ -253,21 +392,21 @@ function ContactIcons({
       <span
         className="pill"
         style={{
-          background: "hsl(44 100% 93%)",
-          color: "hsl(32 80% 30%)",
+          background: "rgba(255,159,10,0.12)",
+          color: "#9c5700",
         }}
       >
         <span
           aria-hidden
           className="h-1.5 w-1.5 rounded-full"
-          style={{ background: "hsl(32 100% 52%)" }}
+          style={{ background: "#ff9f0a" }}
         />
         Missing contact
       </span>
     );
   }
   return (
-    <div className="flex items-center gap-2 text-ink-3">
+    <div className="flex items-center gap-3 text-ink-3">
       {email && (
         <span title={email} className="inline-flex items-center gap-1">
           <Mail className="h-3.5 w-3.5" />
@@ -287,8 +426,8 @@ function ContactIcons({
         <span
           className="pill"
           style={{
-            background: "hsl(240 9% 94%)",
-            color: "hsl(240 3% 36%)",
+            background: "rgba(134,134,139,0.12)",
+            color: "var(--color-ink-2)",
           }}
         >
           <MapPin className="h-3 w-3" />
@@ -301,16 +440,46 @@ function ContactIcons({
 
 function AgePill({ bucket }: { bucket: string }) {
   const styles: Record<string, { bg: string; color: string }> = {
-    CURRENT: { bg: "hsl(142 60% 94%)", color: "hsl(142 64% 24%)" },
-    DAYS_0_30: { bg: "hsl(211 100% 95%)", color: "hsl(211 86% 32%)" },
-    DAYS_30_60: { bg: "hsl(44 100% 93%)", color: "hsl(32 80% 30%)" },
-    DAYS_60_90: { bg: "hsl(22 100% 93%)", color: "hsl(14 86% 32%)" },
-    DAYS_90_PLUS: { bg: "hsl(4 100% 95%)", color: "hsl(4 72% 38%)" },
+    CURRENT: { bg: "rgba(48,209,88,0.12)", color: "#1f7a4a" },
+    DAYS_0_30: { bg: "rgba(10,132,255,0.10)", color: "#0057b7" },
+    DAYS_30_60: { bg: "rgba(255,159,10,0.14)", color: "#9c5700" },
+    DAYS_60_90: { bg: "rgba(255,107,61,0.12)", color: "#a03c1b" },
+    DAYS_90_PLUS: { bg: "rgba(255,69,58,0.12)", color: "#c6373a" },
   };
   const s = styles[bucket] ?? styles.CURRENT;
   return (
     <span className="pill" style={{ background: s.bg, color: s.color }}>
       {AGE_BUCKET_LABELS[bucket as keyof typeof AGE_BUCKET_LABELS] ?? bucket}
+    </span>
+  );
+}
+
+function ChannelPill({ channel }: { channel: string }) {
+  const styles: Record<string, { bg: string; color: string }> = {
+    EMAIL: { bg: "rgba(10,132,255,0.10)", color: "#0057b7" },
+    WHATSAPP: { bg: "rgba(48,209,88,0.12)", color: "#1f7a4a" },
+    SMS: { bg: "rgba(255,159,10,0.14)", color: "#9c5700" },
+  };
+  const s = styles[channel] ?? styles.EMAIL;
+  return (
+    <span className="pill" style={{ background: s.bg, color: s.color }}>
+      {channel.toLowerCase()}
+    </span>
+  );
+}
+
+function StatusPill({ status }: { status: string }) {
+  const styles: Record<string, { bg: string; color: string }> = {
+    SENT: { bg: "rgba(48,209,88,0.12)", color: "#1f7a4a" },
+    DELIVERED: { bg: "rgba(48,209,88,0.18)", color: "#15603a" },
+    READ: { bg: "rgba(10,132,255,0.12)", color: "#0057b7" },
+    FAILED: { bg: "rgba(255,69,58,0.12)", color: "#c6373a" },
+    BOUNCED: { bg: "rgba(255,69,58,0.12)", color: "#c6373a" },
+  };
+  const s = styles[status] ?? styles.SENT;
+  return (
+    <span className="pill" style={{ background: s.bg, color: s.color }}>
+      {status.toLowerCase()}
     </span>
   );
 }
