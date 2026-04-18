@@ -4,26 +4,51 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 224 71% 4%;
-    --card: 0 0% 100%;
-    --card-foreground: 224 71% 4%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 224 71% 4%;
-    --primary: 224 76% 22%;
-    --primary-foreground: 210 20% 98%;
-    --secondary: 220 14% 96%;
-    --secondary-foreground: 220 9% 25%;
-    --muted: 220 14% 96%;
-    --muted-foreground: 220 9% 46%;
-    --accent: 220 14% 96%;
-    --accent-foreground: 220 9% 25%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 20% 98%;
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 224 76% 22%;
-    --radius: 0.5rem;
+    /* Apple surface palette */
+    --surface: 0 0% 99.2%;       /* #fbfbfd page bg */
+    --surface-2: 240 14% 96.5%;  /* #f5f5f7 panel */
+    --surface-3: 0 0% 100%;      /* #ffffff card */
+
+    /* Ink scale */
+    --ink: 240 6% 12%;           /* #1d1d1f primary */
+    --ink-2: 240 3% 26%;         /* #424245 secondary */
+    --ink-3: 240 2% 53%;         /* #86868b tertiary */
+
+    /* Hair borders */
+    --border-hair: 240 4% 84%;   /* #d2d2d7 */
+    --border-subtle: 240 9% 92%; /* #e8e8ed */
+
+    /* Apple blue accent */
+    --accent-blue: 211 100% 44%; /* #0071e3 */
+    --accent-blue-hover: 211 100% 46%;
+
+    /* System semantics */
+    --success: 142 70% 51%;      /* #30d158 */
+    --warning: 32 100% 52%;      /* #ff9f0a */
+    --danger: 4 100% 59%;        /* #ff3b30 */
+
+    /* Mapping into legacy variable names so existing components still work */
+    --background: var(--surface);
+    --foreground: var(--ink);
+    --card: var(--surface-3);
+    --card-foreground: var(--ink);
+    --popover: var(--surface-3);
+    --popover-foreground: var(--ink);
+    --primary: var(--accent-blue);
+    --primary-foreground: 0 0% 100%;
+    --secondary: var(--surface-2);
+    --secondary-foreground: var(--ink);
+    --muted: var(--surface-2);
+    --muted-foreground: var(--ink-3);
+    --accent: var(--surface-2);
+    --accent-foreground: var(--ink);
+    --destructive: var(--danger);
+    --destructive-foreground: 0 0% 100%;
+    --border: var(--border-subtle);
+    --input: var(--border-hair);
+    --ring: var(--accent-blue);
+
+    --radius: 0.75rem;
   }
 }
 
@@ -31,8 +56,148 @@
   * {
     @apply border-border;
   }
-  body {
-    @apply bg-background text-foreground;
-    font-feature-settings: "rlig" 1, "calt" 1;
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
   }
+
+  body {
+    background: hsl(var(--surface));
+    color: hsl(var(--ink));
+    font-family:
+      -apple-system,
+      BlinkMacSystemFont,
+      "SF Pro Display",
+      "SF Pro",
+      "Segoe UI Variable",
+      "Segoe UI",
+      Inter,
+      system-ui,
+      ui-sans-serif,
+      sans-serif;
+    font-feature-settings: "cv11", "ss01", "ss03", "rlig" 1, "calt" 1;
+    letter-spacing: -0.003em;
+  }
+
+  h1, h2, h3, h4 {
+    letter-spacing: -0.022em;
+    color: hsl(var(--ink));
+  }
+
+  ::selection {
+    background: hsl(var(--accent-blue) / 0.22);
+    color: hsl(var(--ink));
+  }
+}
+
+@layer components {
+  /* Apple-style card: pure white, subtle layered shadow, never heavy */
+  .card-apple {
+    @apply rounded-2xl bg-white;
+    box-shadow:
+      0 1px 2px hsl(240 6% 12% / 0.04),
+      0 1px 1px hsl(240 6% 12% / 0.03);
+  }
+
+  .card-apple-elevated {
+    @apply rounded-2xl bg-white;
+    box-shadow:
+      0 1px 2px hsl(240 6% 12% / 0.04),
+      0 8px 24px -6px hsl(240 6% 12% / 0.08),
+      0 2px 4px hsl(240 6% 12% / 0.04);
+  }
+
+  /* Frosted glass: for sticky top chrome */
+  .glass {
+    background: hsla(0, 0%, 100%, 0.72);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid hsl(var(--border-subtle));
+  }
+
+  /* Apple-style primary button */
+  .btn-apple {
+    @apply inline-flex items-center justify-center rounded-full px-5 py-2.5 text-sm font-medium transition-all duration-150;
+    background: hsl(var(--accent-blue));
+    color: white;
+    letter-spacing: -0.01em;
+  }
+  .btn-apple:hover {
+    background: hsl(var(--accent-blue-hover));
+    transform: translateY(-0.5px);
+  }
+  .btn-apple:active {
+    transform: translateY(0);
+    opacity: 0.94;
+  }
+  .btn-apple:disabled {
+    opacity: 0.5;
+    transform: none;
+    pointer-events: none;
+  }
+
+  .btn-apple-ghost {
+    @apply inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium text-[hsl(var(--ink-2))] transition-all duration-150;
+  }
+  .btn-apple-ghost:hover {
+    background: hsl(var(--surface-2));
+    color: hsl(var(--ink));
+  }
+
+  /* Apple-style input */
+  .input-apple {
+    @apply w-full rounded-xl border bg-white px-4 py-3 text-[15px] transition-all duration-150;
+    border-color: hsl(var(--border-hair));
+    color: hsl(var(--ink));
+  }
+  .input-apple::placeholder {
+    color: hsl(var(--ink-3));
+  }
+  .input-apple:focus {
+    outline: none;
+    border-color: hsl(var(--accent-blue));
+    box-shadow: 0 0 0 4px hsl(var(--accent-blue) / 0.12);
+  }
+
+  /* Quiet pill for status badges */
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+
+  /* Interactive row hover */
+  .row-interactive {
+    @apply transition-colors duration-100;
+  }
+  .row-interactive:hover {
+    background: hsl(var(--surface-2) / 0.7);
+  }
+
+  /* Smooth entrance */
+  .fade-in-up {
+    animation: fadeInUp 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+}
+
+@layer utilities {
+  .tracking-tightest {
+    letter-spacing: -0.03em;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+  .text-ink { color: hsl(var(--ink)); }
+  .text-ink-2 { color: hsl(var(--ink-2)); }
+  .text-ink-3 { color: hsl(var(--ink-3)); }
+  .bg-surface { background-color: hsl(var(--surface)); }
+  .bg-surface-2 { background-color: hsl(var(--surface-2)); }
+  .border-hair { border-color: hsl(var(--border-hair)); }
+  .border-subtle { border-color: hsl(var(--border-subtle)); }
 }

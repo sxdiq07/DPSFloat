@@ -7,64 +7,113 @@ export default function LoginPage() {
   const [state, formAction, pending] = useActionState(loginAction, undefined);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 px-4">
-      <div className="w-full max-w-md rounded-lg border bg-card p-8 shadow-sm">
-        <div className="mb-6 text-center">
-          <div className="inline-block rounded bg-primary px-3 py-1 text-sm font-medium text-primary-foreground">
-            CredFloat
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-surface px-6">
+      {/* Ambient gradient backdrop */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-10"
+        style={{
+          background:
+            "radial-gradient(ellipse 800px 600px at 50% -10%, hsl(211 100% 44% / 0.08), transparent 60%), radial-gradient(ellipse 600px 400px at 90% 100%, hsl(280 60% 60% / 0.06), transparent 60%)",
+        }}
+      />
+
+      <div className="w-full max-w-[420px] fade-in-up">
+        <div className="mb-10 text-center">
+          <div className="mx-auto mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[hsl(211_100%_44%)] to-[hsl(211_100%_55%)] shadow-apple-md">
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M4 7c0-1.1.9-2 2-2h10l4 4v8c0 1.1-.9 2-2 2H6c-1.1 0-2-.9-2-2V7z"
+                stroke="white"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M8 12h8M8 16h5"
+                stroke="white"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+            </svg>
           </div>
-          <h1 className="mt-4 text-2xl font-semibold tracking-tight">Sign in</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <h1 className="text-[34px] font-semibold leading-tight tracking-tightest text-ink">
+            Sign in to CredFloat
+          </h1>
+          <p className="mt-2 text-[15px] text-ink-3">
             DPS &amp; Co internal collection engine
           </p>
         </div>
 
-        <form action={formAction} className="space-y-4">
-          <div>
-            <label htmlFor="email" className="mb-1.5 block text-sm font-medium">
-              Email
-            </label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              required
-              autoComplete="email"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="password" className="mb-1.5 block text-sm font-medium">
-              Password
-            </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              required
-              autoComplete="current-password"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-            />
-          </div>
-
-          {state?.error && (
-            <div className="rounded-md border border-destructive/50 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-              {state.error}
+        <div className="card-apple-elevated p-8">
+          <form action={formAction} className="space-y-5">
+            <div>
+              <label
+                htmlFor="email"
+                className="mb-2 block text-[13px] font-medium text-ink-2"
+              >
+                Email
+              </label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                required
+                autoComplete="email"
+                placeholder="you@dpsandco.in"
+                className="input-apple"
+              />
             </div>
-          )}
 
-          <button
-            type="submit"
-            disabled={pending}
-            className="flex h-10 w-full items-center justify-center rounded-md bg-primary text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
-          >
-            {pending ? "Signing in..." : "Sign in"}
-          </button>
-        </form>
+            <div>
+              <label
+                htmlFor="password"
+                className="mb-2 block text-[13px] font-medium text-ink-2"
+              >
+                Password
+              </label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                required
+                autoComplete="current-password"
+                placeholder="••••••••"
+                className="input-apple"
+              />
+            </div>
 
-        <p className="mt-6 text-center text-xs text-muted-foreground">
-          Demo credentials are set in the seed script.
+            {state?.error && (
+              <div
+                className="rounded-xl border px-4 py-3 text-[13px]"
+                style={{
+                  borderColor: "hsl(4 100% 59% / 0.25)",
+                  background: "hsl(4 100% 59% / 0.06)",
+                  color: "hsl(4 72% 45%)",
+                }}
+              >
+                {state.error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={pending}
+              className="btn-apple w-full h-11"
+            >
+              {pending ? "Signing in…" : "Continue"}
+            </button>
+          </form>
+        </div>
+
+        <p className="mt-8 text-center text-[13px] text-ink-3">
+          Need help? Contact your firm administrator.
         </p>
       </div>
     </div>

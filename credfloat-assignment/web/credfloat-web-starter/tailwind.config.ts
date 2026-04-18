@@ -50,6 +50,18 @@ const config: Config = {
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
       },
+      fontSize: {
+        "display-lg": ["3.25rem", { lineHeight: "1.06", letterSpacing: "-0.028em" }],
+        display: ["2.5rem", { lineHeight: "1.1", letterSpacing: "-0.022em" }],
+      },
+      boxShadow: {
+        "apple-sm": "0 1px 2px hsl(240 6% 12% / 0.04), 0 1px 1px hsl(240 6% 12% / 0.03)",
+        "apple-md": "0 1px 2px hsl(240 6% 12% / 0.04), 0 8px 24px -6px hsl(240 6% 12% / 0.08), 0 2px 4px hsl(240 6% 12% / 0.04)",
+        "apple-lg": "0 4px 8px hsl(240 6% 12% / 0.04), 0 20px 40px -8px hsl(240 6% 12% / 0.12)",
+      },
+      transitionTimingFunction: {
+        apple: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+      },
     },
   },
   plugins: [require("tailwindcss-animate")],

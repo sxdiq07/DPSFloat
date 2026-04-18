@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireAuth } from "@/lib/session";
 import { signOut } from "@/lib/auth";
-import { LayoutDashboard, Users, FileBarChart, Settings, LogOut } from "lucide-react";
+import { NavLinks } from "./_components/nav-links";
 
 export default async function DashboardLayout({
   children,
@@ -11,77 +11,71 @@ export default async function DashboardLayout({
   const session = await requireAuth();
 
   return (
-    <div className="flex min-h-screen bg-muted/20">
-      {/* Sidebar */}
-      <aside className="flex w-56 flex-col border-r bg-card">
-        <div className="flex h-14 items-center border-b px-4">
-          <span className="inline-flex items-center gap-2 font-semibold">
-            <span className="inline-block h-6 w-6 rounded bg-primary" />
-            CredFloat
-          </span>
-        </div>
-
-        <nav className="flex-1 space-y-0.5 p-2 text-sm">
-          <NavLink href="/" icon={<LayoutDashboard className="h-4 w-4" />}>
-            Overview
-          </NavLink>
-          <NavLink href="/clients" icon={<Users className="h-4 w-4" />}>
-            Clients
-          </NavLink>
-          <NavLink href="/reports" icon={<FileBarChart className="h-4 w-4" />}>
-            Reports
-          </NavLink>
-          <NavLink href="/settings" icon={<Settings className="h-4 w-4" />}>
-            Settings
-          </NavLink>
-        </nav>
-
-        <div className="border-t p-3">
-          <div className="mb-2 text-xs">
-            <div className="font-medium">{session.user.name ?? session.user.email}</div>
-            <div className="text-muted-foreground">{session.user.role}</div>
-          </div>
-          <form
-            action={async () => {
-              "use server";
-              await signOut({ redirectTo: "/login" });
-            }}
+    <div className="min-h-screen bg-surface">
+      {/* Frosted sticky top nav */}
+      <header className="glass sticky top-0 z-40">
+        <div className="mx-auto flex h-14 max-w-7xl items-center gap-8 px-6">
+          <Link
+            href="/"
+            className="flex items-center gap-2 text-[15px] font-semibold tracking-tight text-ink"
           >
-            <button
-              type="submit"
-              className="inline-flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+            <span
+              className="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-br from-[hsl(211_100%_44%)] to-[hsl(211_100%_55%)] shadow-apple-sm"
+              aria-hidden
             >
-              <LogOut className="h-3.5 w-3.5" />
-              Sign out
-            </button>
-          </form>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M4 7c0-1.1.9-2 2-2h10l4 4v8c0 1.1-.9 2-2 2H6c-1.1 0-2-.9-2-2V7z"
+                  stroke="white"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </span>
+            CredFloat
+          </Link>
+
+          <NavLinks />
+
+          <div className="ml-auto flex items-center gap-3">
+            <div className="hidden text-right sm:block">
+              <div className="text-[13px] font-medium leading-tight text-ink">
+                {session.user.name ?? session.user.email}
+              </div>
+              <div className="text-[11px] uppercase tracking-wider text-ink-3">
+                {session.user.role}
+              </div>
+            </div>
+            <div
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[hsl(211_100%_44%)] to-[hsl(280_70%_55%)] text-[12px] font-semibold text-white"
+              aria-hidden
+            >
+              {(session.user.name ?? session.user.email ?? "?")
+                .charAt(0)
+                .toUpperCase()}
+            </div>
+            <form
+              action={async () => {
+                "use server";
+                await signOut({ redirectTo: "/login" });
+              }}
+            >
+              <button type="submit" className="btn-apple-ghost h-8 px-3">
+                Sign out
+              </button>
+            </form>
+          </div>
         </div>
-      </aside>
+      </header>
 
-      {/* Main */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-6xl p-6">{children}</div>
+      <main className="mx-auto max-w-7xl px-6 py-10">
+        <div className="fade-in-up">{children}</div>
       </main>
-    </div>
-  );
-}
 
-function NavLink({
-  href,
-  icon,
-  children,
-}: {
-  href: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      className="flex items-center gap-2 rounded-md px-3 py-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-    >
-      {icon}
-      {children}
-    </Link>
+      <footer className="mx-auto mt-16 max-w-7xl px-6 pb-10 text-[12px] text-ink-3">
+        © {new Date().getFullYear()} DPS &amp; Co · CredFloat
+      </footer>
+    </div>
   );
 }

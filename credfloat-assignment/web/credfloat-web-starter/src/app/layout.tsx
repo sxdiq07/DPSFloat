@@ -6,6 +6,10 @@ export const metadata: Metadata = {
   description: "Internal collection engine for DPS & Co",
 };
 
+export const viewport = {
+  themeColor: "#fbfbfd",
+};
+
 export default function RootLayout({
   children,
 }: {
@@ -13,7 +17,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="min-h-screen antialiased">{children}</body>
+      <body className="min-h-screen bg-surface text-ink antialiased">
+        {children}
+      </body>
     </html>
   );
 }
