@@ -128,30 +128,48 @@ class TallyReader:
         If the firm uses custom debtor groups (e.g. 'Trade Debtors' or 'Debtors -
         Domestic'), extend the WHERE clause or query the Group table first to
         collect all child groups of 'Sundry Debtors'.
+
+        Contact field names confirmed against Tally Prime 7.x Ledger schema:
+        $EMail, $LedgerMobile, $LedgerPhone, $LedgerContact, $_Address1..5.
+        Any of these may be null for any given ledger; the web upsert handles
+        null/empty values as "no update" rather than clobbering stored values.
         """
         cur = self.conn.cursor()
-        # Using only columns confirmed across Tally Prime 3.x and 7.x.
-        # To extract address/phone/email, first inspect_ledger_columns() and
-        # add the exact column names below.
         cur.execute(
             """
-            SELECT $Name, $Parent, $ClosingBalance
+            SELECT $Name, $Parent, $ClosingBalance,
+                   $EMail, $LedgerMobile, $LedgerPhone, $LedgerContact,
+                   $_Address1, $_Address2, $_Address3, $_Address4, $_Address5
             FROM Ledger
             WHERE $Parent = 'Sundry Debtors'
             """
         )
         parties = []
         for row in cur.fetchall():
-            name, parent, closing = row
+            (
+                name, parent, closing,
+                email, mobile, phone_landline, phone_contact,
+                addr1, addr2, addr3, addr4, addr5,
+            ) = row
             # Tally convention: debtor balance is negative when party owes us.
             # Flip sign so downstream "positive = outstanding" logic is intuitive.
             outstanding = -float(closing or 0)
+            # Concatenate address lines, skipping blanks
+            address = "\n".join(
+                line.strip() for line in (addr1, addr2, addr3, addr4, addr5)
+                if line and str(line).strip()
+            ) or None
             parties.append(
                 PartyRecord(
                     company=company_name,
                     tally_ledger_name=name or "",
                     parent_group=parent or "",
                     closing_balance=outstanding,
+                    address=address,
+                    email=(email or None) and str(email).strip() or None,
+                    phone=(phone_landline or phone_contact or None) and
+                          str(phone_landline or phone_contact).strip() or None,
+                    whatsapp_number=(mobile or None) and str(mobile).strip() or None,
                 )
             )
         return parties
