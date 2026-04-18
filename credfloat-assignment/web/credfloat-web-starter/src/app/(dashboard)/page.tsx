@@ -10,8 +10,15 @@ export default async function OverviewPage() {
   const firmId = await requireFirmId();
 
   // Aggregate queries (all scoped to this firm)
-  const [totalOutstandingAgg, overdue90Agg, collectionsAgg, remindersToday, ageingBuckets, topClients] =
-    await Promise.all([
+  const [
+    totalOutstandingAgg,
+    overdue90Agg,
+    collectionsAgg,
+    remindersToday,
+    ageingBuckets,
+    topClientTotals,
+    topClientOverdue,
+  ] = await Promise.all([
       prisma.invoice.aggregate({
         where: { clientCompany: { firmId }, status: "OPEN" },
         _sum: { outstandingAmount: true },
@@ -44,16 +51,21 @@ export default async function OverviewPage() {
         where: { clientCompany: { firmId }, status: "OPEN" },
         _sum: { outstandingAmount: true },
       }),
-      prisma.clientCompany.findMany({
-        where: { firmId },
+      prisma.invoice.groupBy({
+        by: ["clientCompanyId"],
+        where: { clientCompany: { firmId }, status: "OPEN" },
+        _sum: { outstandingAmount: true },
+        orderBy: { _sum: { outstandingAmount: "desc" } },
         take: 10,
-        include: {
-          invoices: {
-            where: { status: "OPEN" },
-            select: { outstandingAmount: true, ageBucket: true },
-          },
-          parties: { select: { id: true } },
+      }),
+      prisma.invoice.groupBy({
+        by: ["clientCompanyId"],
+        where: {
+          clientCompany: { firmId },
+          status: "OPEN",
+          ageBucket: { in: ["DAYS_60_90", "DAYS_90_PLUS"] },
         },
+        _sum: { outstandingAmount: true },
       }),
     ]);
 
@@ -72,26 +84,27 @@ export default async function OverviewPage() {
   });
   const maxAgeing = Math.max(1, ...ageingData.map((d) => d.amount));
 
-  // Top clients by total outstanding
-  const topClientsRanked = topClients
-    .map((c) => {
-      const outstanding = c.invoices.reduce(
-        (sum, i) => sum + Number(i.outstandingAmount),
-        0,
-      );
-      const overdue = c.invoices
-        .filter((i) => i.ageBucket === "DAYS_60_90" || i.ageBucket === "DAYS_90_PLUS")
-        .reduce((sum, i) => sum + Number(i.outstandingAmount), 0);
-      return {
-        id: c.id,
-        name: c.displayName,
-        outstanding,
-        overdue,
-        debtorCount: c.parties.length,
-      };
-    })
-    .sort((a, b) => b.outstanding - a.outstanding)
-    .slice(0, 10);
+  // Hydrate names + debtor counts for just the ranked 10 IDs
+  const topClientIds = topClientTotals.map((t) => t.clientCompanyId);
+  const topClientMeta = await prisma.clientCompany.findMany({
+    where: { id: { in: topClientIds } },
+    select: { id: true, displayName: true, _count: { select: { parties: true } } },
+  });
+  const metaById = new Map(topClientMeta.map((m) => [m.id, m]));
+  const overdueById = new Map(
+    topClientOverdue.map((o) => [o.clientCompanyId, Number(o._sum.outstandingAmount ?? 0)]),
+  );
+
+  const topClientsRanked = topClientTotals.map((t) => {
+    const meta = metaById.get(t.clientCompanyId);
+    return {
+      id: t.clientCompanyId,
+      name: meta?.displayName ?? "(unknown)",
+      outstanding: Number(t._sum.outstandingAmount ?? 0),
+      overdue: overdueById.get(t.clientCompanyId) ?? 0,
+      debtorCount: meta?._count.parties ?? 0,
+    };
+  });
 
   return (
     <div className="space-y-6">
