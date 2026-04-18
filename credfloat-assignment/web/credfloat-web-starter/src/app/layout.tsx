@@ -4,8 +4,8 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
-  title: "CredFloat — DPS & Co",
-  description: "Internal collection engine for DPS & Co",
+  title: "Ledger · DPS & Co",
+  description: "The intelligent layer on top of your Tally ledger.",
 };
 
 export const viewport = {

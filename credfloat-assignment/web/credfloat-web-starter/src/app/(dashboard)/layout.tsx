@@ -57,7 +57,7 @@ export default async function DashboardLayout({
                 />
               </svg>
             </span>
-            <span>CredFloat</span>
+            <span>Ledger</span>
             <SyncHealthDot
               lastSyncedAt={lastSync?.lastSyncedAt?.toISOString() ?? null}
             />
@@ -106,7 +106,7 @@ export default async function DashboardLayout({
       </main>
 
       <footer className="mx-auto mt-16 max-w-7xl px-6 pb-10 text-[12px] text-ink-3">
-        © {new Date().getFullYear()} DPS &amp; Co · CredFloat · Press{" "}
+        © {new Date().getFullYear()} DPS &amp; Co · Ledger · Press{" "}
         <kbd className="rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-surface-3)] px-1.5 py-0.5 font-mono text-[10px]">
           ⌘K
         </kbd>{" "}
