@@ -21,31 +21,34 @@ export function SyncHealthDot({ lastSyncedAt }: { lastSyncedAt: string | null })
     label = `Last sync ${formatDistanceToNow(when, { addSuffix: true })}`;
   }
 
-  const color: Record<typeof tone, string> = {
+  const colors: Record<typeof tone, string> = {
     healthy: "#30d158",
     stale: "#ff9f0a",
     broken: "#ff453a",
     none: "#86868b",
   };
-  const ring = color[tone];
+  const ring = colors[tone];
 
   return (
-    <TooltipProvider delayDuration={150}>
+    <TooltipProvider>
       <Tooltip>
-        <TooltipTrigger asChild>
+        <TooltipTrigger
+          type="button"
+          aria-label={label}
+          className="relative inline-flex h-2.5 w-2.5 items-center justify-center rounded-full"
+        >
+          {tone === "healthy" && (
+            <span
+              aria-hidden
+              className="absolute inset-0 animate-ping rounded-full opacity-60"
+              style={{ background: ring }}
+            />
+          )}
           <span
-            aria-label={label}
-            className="relative inline-flex h-2 w-2 items-center justify-center"
-          >
-            <span
-              className={`absolute inset-0 rounded-full ${tone === "healthy" ? "animate-ping" : ""} opacity-60`}
-              style={{ background: ring }}
-            />
-            <span
-              className="relative h-2 w-2 rounded-full"
-              style={{ background: ring }}
-            />
-          </span>
+            aria-hidden
+            className="relative h-2 w-2 rounded-full"
+            style={{ background: ring }}
+          />
         </TooltipTrigger>
         <TooltipContent side="bottom">
           <div className="text-[12px]">
@@ -58,7 +61,7 @@ export function SyncHealthDot({ lastSyncedAt }: { lastSyncedAt: string | null })
                     ? "Sync broken"
                     : "No sync yet"}
             </div>
-            <div className="text-ink-3">{label}</div>
+            <div className="opacity-70">{label}</div>
           </div>
         </TooltipContent>
       </Tooltip>
