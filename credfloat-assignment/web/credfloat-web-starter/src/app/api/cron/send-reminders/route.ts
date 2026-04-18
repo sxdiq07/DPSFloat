@@ -85,9 +85,12 @@ export async function GET(req: NextRequest) {
               vars,
             });
             providerId = r.id;
-          } else if (channel === "WHATSAPP" && inv.party.whatsappNumber) {
+          } else if (
+            channel === "WHATSAPP" &&
+            (inv.party.whatsappNumber || inv.party.phone)
+          ) {
             const r = await sendWhatsAppReminder({
-              to: inv.party.whatsappNumber,
+              to: inv.party.whatsappNumber ?? inv.party.phone ?? "",
               partyName: vars.partyName,
               billRef: vars.billRef,
               amount: vars.amount,

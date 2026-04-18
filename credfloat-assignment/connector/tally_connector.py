@@ -67,6 +67,7 @@ class PartyRecord:
     address: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
+    whatsapp_number: Optional[str] = None
 
 
 @dataclass

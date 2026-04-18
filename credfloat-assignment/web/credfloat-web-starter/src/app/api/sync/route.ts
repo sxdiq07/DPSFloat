@@ -13,6 +13,7 @@ const partySchema = z.object({
   address: z.string().nullable().optional(),
   phone: z.string().nullable().optional(),
   email: z.string().nullable().optional(),
+  whatsapp_number: z.string().nullable().optional(),
 });
 
 const syncSchema = z.object({
@@ -110,6 +111,7 @@ export async function POST(req: NextRequest) {
         address: p.address ?? null,
         phone: p.phone ?? null,
         email: p.email ?? null,
+        whatsappNumber: p.whatsapp_number ?? null,
         lastSyncedAt: syncedAt,
       },
       update: {
@@ -119,6 +121,7 @@ export async function POST(req: NextRequest) {
         address: p.address ?? undefined,
         phone: p.phone ?? undefined,
         email: p.email ?? undefined,
+        whatsappNumber: p.whatsapp_number ?? undefined,
         lastSyncedAt: syncedAt,
       },
     });
