@@ -4,7 +4,8 @@ import { formatINR } from "@/lib/currency";
 import { AGE_BUCKET_LABELS } from "@/lib/ageing";
 import { notFound } from "next/navigation";
 import { formatInTimeZone } from "date-fns-tz";
-import { Mail, Phone, MessageCircle, MapPin } from "lucide-react";
+import Link from "next/link";
+import { Mail, Phone, MessageCircle, MapPin, Settings2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatCard } from "@/components/ui/stat-card";
@@ -71,6 +72,15 @@ export default async function ClientDetailPage({
             Tally ledger name ·{" "}
             <span className="tabular">{client.tallyCompanyName}</span>
           </>
+        }
+        action={
+          <Link
+            href={`/clients/${client.id}/reminders`}
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-3)] px-4 py-2 text-[13px] font-medium text-ink-2 transition-all hover:border-[var(--color-border-hair)] hover:text-ink"
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+            Reminder settings
+          </Link>
         }
       />
 

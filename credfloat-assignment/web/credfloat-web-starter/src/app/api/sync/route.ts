@@ -56,10 +56,14 @@ export async function POST(req: NextRequest) {
   const { synced_at, companies, parties } = parsed.data;
   const syncedAt = new Date(synced_at);
 
-  // V1: single-firm deployment. Resolve DPS & Co from the seed.
-  const firm = await prisma.firm.findFirst({
-    where: { name: process.env.SEED_FIRM_NAME ?? "DPS & Co" },
-  });
+  // Prefer the explicit SEED_FIRM_ID env var (stable across renames); fall
+  // back to lookup by name for first-run bootstrapping. Fragile if anyone
+  // renames DPS & Co or adds a second firm before SEED_FIRM_ID is set.
+  const firm = process.env.SEED_FIRM_ID
+    ? await prisma.firm.findUnique({ where: { id: process.env.SEED_FIRM_ID } })
+    : await prisma.firm.findFirst({
+        where: { name: process.env.SEED_FIRM_NAME ?? "DPS & Co" },
+      });
   if (!firm) {
     return NextResponse.json(
       { error: "Firm not found. Run `npm run db:seed` first." },

@@ -6,6 +6,7 @@ import { NavLinks } from "./_components/nav-links";
 import { CommandMenu } from "./_components/command-menu";
 import { SyncHealthDot } from "./_components/sync-health-dot";
 import { KeyboardShortcuts } from "./_components/keyboard-shortcuts";
+import { MobileNav } from "./_components/mobile-nav";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 export default async function DashboardLayout({
@@ -33,7 +34,8 @@ export default async function DashboardLayout({
   return (
     <div className="min-h-screen bg-surface">
       <header className="glass sticky top-0 z-40">
-        <div className="mx-auto flex h-14 max-w-7xl items-center gap-8 px-6">
+        <div className="mx-auto flex h-14 max-w-7xl items-center gap-4 px-6 md:gap-8">
+          <MobileNav />
           <Link
             href="/"
             className="flex items-center gap-2.5 text-[15px] font-semibold tracking-tight text-ink"

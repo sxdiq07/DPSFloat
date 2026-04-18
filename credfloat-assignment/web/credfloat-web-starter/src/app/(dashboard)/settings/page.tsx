@@ -1,18 +1,20 @@
 import { prisma } from "@/lib/prisma";
-import { requireFirmId } from "@/lib/session";
+import { requireAuth, requireFirmId } from "@/lib/session";
 import { formatDistanceToNow } from "date-fns";
 import { PageHeader } from "@/components/ui/page-header";
+import { StaffManager } from "./_components/staff-manager";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
+  const session = await requireAuth();
   const firmId = await requireFirmId();
 
   const [firm, staff, clientCount, partyCount, lastSync] = await Promise.all([
     prisma.firm.findUnique({ where: { id: firmId } }),
     prisma.firmStaff.findMany({
       where: { firmId },
-      orderBy: { createdAt: "asc" },
+      orderBy: [{ role: "asc" }, { createdAt: "asc" }],
     }),
     prisma.clientCompany.count({ where: { firmId } }),
     prisma.party.count({ where: { clientCompany: { firmId } } }),
@@ -22,6 +24,8 @@ export default async function SettingsPage() {
       select: { lastSyncedAt: true },
     }),
   ]);
+
+  const canManage = session.user.role === "PARTNER";
 
   return (
     <div className="space-y-10">
@@ -76,39 +80,16 @@ export default async function SettingsPage() {
       </section>
 
       {/* Staff */}
-      <section className="card-apple overflow-hidden">
-        <div className="flex items-end justify-between px-8 pt-7 pb-5">
-          <div>
-            <h2 className="text-[18px] font-semibold text-ink">Staff</h2>
-            <p className="mt-1 text-[13px] text-ink-3">
-              Partners see all clients; staff see assigned clients (Phase 2).
-            </p>
-          </div>
-        </div>
-        <table className="w-full border-t border-subtle text-[14px]">
-          <thead>
-            <tr className="text-[11px] uppercase tracking-[0.08em] text-ink-3">
-              <th className="px-8 py-3 text-left font-medium">Name</th>
-              <th className="px-8 py-3 text-left font-medium">Email</th>
-              <th className="px-8 py-3 text-left font-medium">Role</th>
-            </tr>
-          </thead>
-          <tbody>
-            {staff.map((s, i) => (
-              <tr
-                key={s.id}
-                className={`row-interactive ${i > 0 ? "border-t border-subtle" : "border-t border-subtle"}`}
-              >
-                <td className="px-8 py-4 font-medium text-ink">{s.name}</td>
-                <td className="px-8 py-4 text-ink-2">{s.email}</td>
-                <td className="px-8 py-4">
-                  <RolePill role={s.role} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+      <StaffManager
+        staff={staff.map((s) => ({
+          id: s.id,
+          name: s.name,
+          email: s.email,
+          role: s.role,
+          isSelf: s.id === session.user.id,
+        }))}
+        canManage={canManage}
+      />
     </div>
   );
 }
@@ -118,14 +99,14 @@ function StatusIndicator({ ok }: { ok: boolean }) {
     <span
       className="pill"
       style={{
-        background: ok ? "hsl(142 60% 94%)" : "hsl(44 100% 93%)",
-        color: ok ? "hsl(142 64% 24%)" : "hsl(32 80% 30%)",
+        background: ok ? "rgba(48,209,88,0.14)" : "rgba(255,159,10,0.14)",
+        color: ok ? "#1f7a4a" : "#9c5700",
       }}
     >
       <span
         aria-hidden
         className="h-1.5 w-1.5 rounded-full"
-        style={{ background: ok ? "hsl(142 64% 42%)" : "hsl(32 100% 52%)" }}
+        style={{ background: ok ? "#30d158" : "#ff9f0a" }}
       />
       {ok ? "Healthy" : "No sync yet"}
     </span>
@@ -152,20 +133,5 @@ function HealthStat({
         {value}
       </dd>
     </div>
-  );
-}
-
-function RolePill({ role }: { role: string }) {
-  const isPartner = role === "PARTNER";
-  return (
-    <span
-      className="pill"
-      style={{
-        background: isPartner ? "hsl(211 100% 95%)" : "hsl(240 9% 94%)",
-        color: isPartner ? "hsl(211 86% 32%)" : "hsl(240 3% 36%)",
-      }}
-    >
-      {role.toLowerCase()}
-    </span>
   );
 }

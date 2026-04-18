@@ -1,42 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { computeAgeBucket, getISTToday } from "@/lib/ageing";
+import { getISTToday } from "@/lib/ageing";
+import { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
-  // Vercel Cron sends Authorization: Bearer <CRON_SECRET>
   const authHeader = req.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const today = getISTToday();
-  // Load all OPEN invoices and recompute their age bucket.
-  // For 300 clients this is typically a few thousand rows — fine for V1.
-  // At scale, batch this with SQL CASE expressions.
-  const invoices = await prisma.invoice.findMany({
-    where: { status: "OPEN", dueDate: { not: null } },
-    select: { id: true, dueDate: true, ageBucket: true },
-  });
 
-  let updated = 0;
-  for (const inv of invoices) {
-    if (!inv.dueDate) continue;
-    const bucket = computeAgeBucket(inv.dueDate, today);
-    if (bucket !== inv.ageBucket) {
-      await prisma.invoice.update({
-        where: { id: inv.id },
-        data: { ageBucket: bucket },
-      });
-      updated++;
-    }
-  }
+  // Single-statement ageing refresh. Maps days-overdue → bucket via CASE.
+  // Only touches rows whose bucket actually changes so we don't flap
+  // updatedAt on invoices that stayed in the same window.
+  const result = await prisma.$executeRaw(Prisma.sql`
+    UPDATE "Invoice" AS i
+    SET "ageBucket" = b.bucket::"AgeBucket",
+        "updatedAt" = NOW()
+    FROM (
+      SELECT
+        "id",
+        CASE
+          WHEN DATE_PART('day', ${today}::timestamp - "dueDate") <= 0 THEN 'CURRENT'
+          WHEN DATE_PART('day', ${today}::timestamp - "dueDate") <= 30 THEN 'DAYS_0_30'
+          WHEN DATE_PART('day', ${today}::timestamp - "dueDate") <= 60 THEN 'DAYS_30_60'
+          WHEN DATE_PART('day', ${today}::timestamp - "dueDate") <= 90 THEN 'DAYS_60_90'
+          ELSE 'DAYS_90_PLUS'
+        END AS bucket
+      FROM "Invoice"
+      WHERE "status" = 'OPEN' AND "dueDate" IS NOT NULL
+    ) AS b
+    WHERE i."id" = b."id"
+      AND i."ageBucket"::text <> b.bucket
+  `);
 
   return NextResponse.json({
-    scanned: invoices.length,
-    updated,
+    updated: result,
     timestamp: new Date().toISOString(),
   });
 }
