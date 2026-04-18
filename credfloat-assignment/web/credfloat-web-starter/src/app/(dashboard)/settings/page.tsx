@@ -14,9 +14,7 @@ export default async function SettingsPage() {
       orderBy: { createdAt: "asc" },
     }),
     prisma.clientCompany.count({ where: { firmId } }),
-    prisma.party.count({
-      where: { clientCompany: { firmId } },
-    }),
+    prisma.party.count({ where: { clientCompany: { firmId } } }),
     prisma.party.findFirst({
       where: { clientCompany: { firmId } },
       orderBy: { lastSyncedAt: "desc" },
@@ -25,73 +23,89 @@ export default async function SettingsPage() {
   ]);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-        <p className="text-sm text-muted-foreground">Firm info and sync health</p>
-      </div>
-
-      <section className="rounded-lg border bg-card p-6">
-        <h2 className="mb-4 text-lg font-semibold">Firm</h2>
-        <dl className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
-          <div>
-            <dt className="text-muted-foreground">Name</dt>
-            <dd className="mt-0.5 font-medium">{firm?.name}</dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Firm ID</dt>
-            <dd className="mt-0.5 font-mono text-xs">{firm?.id}</dd>
-          </div>
-        </dl>
+    <div className="space-y-10">
+      <section>
+        <p className="text-[13px] font-medium uppercase tracking-[0.14em] text-ink-3">
+          Administration
+        </p>
+        <h1 className="mt-2 text-display font-semibold text-ink">Settings</h1>
+        <p className="mt-2 text-[15px] text-ink-3">
+          Firm information, sync health, and staff access.
+        </p>
       </section>
 
-      <section className="rounded-lg border bg-card p-6">
-        <h2 className="mb-4 text-lg font-semibold">Sync health</h2>
-        <dl className="grid grid-cols-1 gap-4 text-sm md:grid-cols-3">
+      {/* Firm */}
+      <section className="card-apple p-8">
+        <h2 className="text-[18px] font-semibold text-ink">Firm</h2>
+        <dl className="mt-5 grid grid-cols-1 gap-6 md:grid-cols-2">
           <div>
-            <dt className="text-muted-foreground">Client companies synced</dt>
-            <dd className="mt-0.5 text-xl font-semibold tabular-nums">
-              {clientCount}
+            <dt className="text-[12px] font-medium uppercase tracking-[0.08em] text-ink-3">
+              Name
+            </dt>
+            <dd className="mt-1.5 text-[15px] font-medium text-ink">
+              {firm?.name}
             </dd>
           </div>
           <div>
-            <dt className="text-muted-foreground">Parties synced</dt>
-            <dd className="mt-0.5 text-xl font-semibold tabular-nums">
-              {partyCount}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Last sync</dt>
-            <dd className="mt-0.5 text-sm font-medium">
-              {lastSync?.lastSyncedAt
-                ? formatDistanceToNow(lastSync.lastSyncedAt, { addSuffix: true })
-                : "Never"}
+            <dt className="text-[12px] font-medium uppercase tracking-[0.08em] text-ink-3">
+              Firm ID
+            </dt>
+            <dd className="mt-1.5 font-mono text-[12px] text-ink-2">
+              {firm?.id}
             </dd>
           </div>
         </dl>
       </section>
 
-      <section className="rounded-lg border bg-card">
-        <div className="border-b px-6 py-4">
-          <h2 className="text-lg font-semibold">Staff</h2>
+      {/* Sync health */}
+      <section className="card-apple p-8">
+        <div className="flex items-start justify-between">
+          <h2 className="text-[18px] font-semibold text-ink">Sync health</h2>
+          <StatusIndicator ok={Boolean(lastSync?.lastSyncedAt)} />
         </div>
-        <table className="w-full text-sm">
-          <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-            <tr>
-              <th className="px-6 py-3 text-left font-medium">Name</th>
-              <th className="px-6 py-3 text-left font-medium">Email</th>
-              <th className="px-6 py-3 text-left font-medium">Role</th>
+        <dl className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-3">
+          <HealthStat label="Client companies" value={`${clientCount}`} />
+          <HealthStat label="Parties synced" value={`${partyCount}`} />
+          <HealthStat
+            label="Last sync"
+            value={
+              lastSync?.lastSyncedAt
+                ? formatDistanceToNow(lastSync.lastSyncedAt, { addSuffix: true })
+                : "Never"
+            }
+            mono={false}
+          />
+        </dl>
+      </section>
+
+      {/* Staff */}
+      <section className="card-apple overflow-hidden">
+        <div className="flex items-end justify-between px-8 pt-7 pb-5">
+          <div>
+            <h2 className="text-[18px] font-semibold text-ink">Staff</h2>
+            <p className="mt-1 text-[13px] text-ink-3">
+              Partners see all clients; staff see assigned clients (Phase 2).
+            </p>
+          </div>
+        </div>
+        <table className="w-full border-t border-subtle text-[14px]">
+          <thead>
+            <tr className="text-[11px] uppercase tracking-[0.08em] text-ink-3">
+              <th className="px-8 py-3 text-left font-medium">Name</th>
+              <th className="px-8 py-3 text-left font-medium">Email</th>
+              <th className="px-8 py-3 text-left font-medium">Role</th>
             </tr>
           </thead>
-          <tbody className="divide-y">
-            {staff.map((s) => (
-              <tr key={s.id}>
-                <td className="px-6 py-3 font-medium">{s.name}</td>
-                <td className="px-6 py-3 text-muted-foreground">{s.email}</td>
-                <td className="px-6 py-3">
-                  <span className="inline-block rounded border bg-muted px-2 py-0.5 text-xs">
-                    {s.role}
-                  </span>
+          <tbody>
+            {staff.map((s, i) => (
+              <tr
+                key={s.id}
+                className={`row-interactive ${i > 0 ? "border-t border-subtle" : "border-t border-subtle"}`}
+              >
+                <td className="px-8 py-4 font-medium text-ink">{s.name}</td>
+                <td className="px-8 py-4 text-ink-2">{s.email}</td>
+                <td className="px-8 py-4">
+                  <RolePill role={s.role} />
                 </td>
               </tr>
             ))}
@@ -99,5 +113,62 @@ export default async function SettingsPage() {
         </table>
       </section>
     </div>
+  );
+}
+
+function StatusIndicator({ ok }: { ok: boolean }) {
+  return (
+    <span
+      className="pill"
+      style={{
+        background: ok ? "hsl(142 60% 94%)" : "hsl(44 100% 93%)",
+        color: ok ? "hsl(142 64% 24%)" : "hsl(32 80% 30%)",
+      }}
+    >
+      <span
+        aria-hidden
+        className="h-1.5 w-1.5 rounded-full"
+        style={{ background: ok ? "hsl(142 64% 42%)" : "hsl(32 100% 52%)" }}
+      />
+      {ok ? "Healthy" : "No sync yet"}
+    </span>
+  );
+}
+
+function HealthStat({
+  label,
+  value,
+  mono = true,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div>
+      <dt className="text-[12px] font-medium uppercase tracking-[0.08em] text-ink-3">
+        {label}
+      </dt>
+      <dd
+        className={`mt-2 text-[22px] font-semibold leading-none tracking-tight text-ink ${mono ? "tabular" : ""}`}
+      >
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function RolePill({ role }: { role: string }) {
+  const isPartner = role === "PARTNER";
+  return (
+    <span
+      className="pill"
+      style={{
+        background: isPartner ? "hsl(211 100% 95%)" : "hsl(240 9% 94%)",
+        color: isPartner ? "hsl(211 86% 32%)" : "hsl(240 3% 36%)",
+      }}
+    >
+      {role.toLowerCase()}
+    </span>
   );
 }
