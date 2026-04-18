@@ -1,0 +1,254 @@
+// CredFloat Database Schema
+// Prisma 5.x + PostgreSQL (Supabase)
+//
+// Setup:
+//   1. npx prisma init
+//   2. Replace prisma/schema.prisma with this file
+//   3. Set DATABASE_URL in .env (Supabase Postgres connection string)
+//   4. npx prisma migrate dev --name init
+//   5. npx prisma generate
+//
+// Design notes:
+//   - Multi-tenant at the Firm level. Every query must filter by firmId.
+//     For V1 there's only DPS & Co, but the schema is ready for Phase 3 SaaS.
+//   - Soft boundaries: deleting a ClientCompany cascades to its parties/invoices.
+//   - All money stored as Decimal(15, 2) — safe up to ₹99,99,99,99,999.99.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -------------------------------------------------------------------
+// Firm — the CA firm operating CredFloat (just DPS & Co in V1)
+// -------------------------------------------------------------------
+model Firm {
+  id              String           @id @default(cuid())
+  name            String
+  createdAt       DateTime         @default(now())
+
+  staff           FirmStaff[]
+  clientCompanies ClientCompany[]
+}
+
+// -------------------------------------------------------------------
+// FirmStaff — users who log into the dashboard
+// -------------------------------------------------------------------
+model FirmStaff {
+  id           String   @id @default(cuid())
+  firm         Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId       String
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         Role     @default(STAFF)
+  createdAt    DateTime @default(now())
+
+  @@index([firmId])
+}
+
+enum Role {
+  PARTNER // sees all clients
+  STAFF   // sees assigned clients (Phase 2: assignment table)
+}
+
+// -------------------------------------------------------------------
+// ClientCompany — the 300+ SMEs whose Tally data the firm manages
+// -------------------------------------------------------------------
+model ClientCompany {
+  id               String        @id @default(cuid())
+  firm             Firm          @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId           String
+  tallyCompanyName String // exact name as it appears in Tally
+  displayName      String // friendly name for dashboard
+  status           CompanyStatus @default(ACTIVE)
+
+  parties        Party[]
+  invoices       Invoice[]
+  receipts       Receipt[]
+  reminderRules  ReminderRule[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([firmId, tallyCompanyName])
+  @@index([firmId])
+}
+
+enum CompanyStatus {
+  ACTIVE
+  PAUSED   // temporarily stop sending reminders for this client
+  ARCHIVED
+}
+
+// -------------------------------------------------------------------
+// Party — debtors (sundry debtor ledgers from Tally)
+// -------------------------------------------------------------------
+model Party {
+  id              String         @id @default(cuid())
+  clientCompany   ClientCompany  @relation(fields: [clientCompanyId], references: [id], onDelete: Cascade)
+  clientCompanyId String
+  tallyLedgerName String
+  parentGroup     String
+
+  // Contact info — often incomplete in Tally, flag for enrichment
+  mailingName     String?
+  address         String?
+  phone           String?
+  email           String?
+  whatsappNumber  String?
+  contactVerified Boolean        @default(false)
+
+  // Outstanding balance from latest sync
+  closingBalance  Decimal        @db.Decimal(15, 2)
+
+  // Opt-out: debtor replied STOP to any channel
+  optedOut        Boolean        @default(false)
+  optedOutReason  String?
+
+  invoices        Invoice[]
+  receipts        Receipt[]
+  remindersSent   ReminderSent[]
+
+  lastSyncedAt    DateTime
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@unique([clientCompanyId, tallyLedgerName])
+  @@index([clientCompanyId])
+  @@index([optedOut])
+}
+
+// -------------------------------------------------------------------
+// Invoice — bill-wise outstanding entries from Tally
+// -------------------------------------------------------------------
+model Invoice {
+  id                String         @id @default(cuid())
+  clientCompany     ClientCompany  @relation(fields: [clientCompanyId], references: [id], onDelete: Cascade)
+  clientCompanyId   String
+  party             Party          @relation(fields: [partyId], references: [id], onDelete: Cascade)
+  partyId           String
+
+  billRef           String // Tally bill reference (e.g. "INV-2024-0142")
+  billDate          DateTime
+  dueDate           DateTime? // derived from billDate + credit terms
+  originalAmount    Decimal        @db.Decimal(15, 2)
+  outstandingAmount Decimal        @db.Decimal(15, 2)
+
+  status            InvoiceStatus  @default(OPEN)
+  ageBucket         AgeBucket      @default(CURRENT) // recomputed daily
+
+  remindersSent     ReminderSent[]
+
+  lastSyncedAt      DateTime
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@unique([clientCompanyId, partyId, billRef])
+  @@index([clientCompanyId, status])
+  @@index([partyId])
+  @@index([ageBucket])
+  @@index([dueDate])
+}
+
+enum InvoiceStatus {
+  OPEN
+  PAID
+  DISPUTED // manually flagged by staff; reminders paused
+}
+
+enum AgeBucket {
+  CURRENT      // not yet due
+  DAYS_0_30
+  DAYS_30_60
+  DAYS_60_90
+  DAYS_90_PLUS
+}
+
+// -------------------------------------------------------------------
+// Receipt — payments received, for matching against invoices
+// -------------------------------------------------------------------
+model Receipt {
+  id              String        @id @default(cuid())
+  clientCompany   ClientCompany @relation(fields: [clientCompanyId], references: [id], onDelete: Cascade)
+  clientCompanyId String
+  party           Party         @relation(fields: [partyId], references: [id], onDelete: Cascade)
+  partyId         String
+
+  voucherRef      String // Tally voucher number
+  receiptDate     DateTime
+  amount          Decimal       @db.Decimal(15, 2)
+
+  lastSyncedAt    DateTime
+  createdAt       DateTime      @default(now())
+
+  @@unique([clientCompanyId, voucherRef])
+  @@index([partyId])
+}
+
+// -------------------------------------------------------------------
+// ReminderRule — per-client configuration of the reminder schedule
+// -------------------------------------------------------------------
+model ReminderRule {
+  id                 String        @id @default(cuid())
+  clientCompany      ClientCompany @relation(fields: [clientCompanyId], references: [id], onDelete: Cascade)
+  clientCompanyId    String
+
+  name               String        @default("Default")
+  enabled            Boolean       @default(true)
+
+  // Trigger offsets in days relative to invoice due date.
+  // Negative = before due date. e.g. [-3, 0, 7, 14, 30]
+  triggerDays        Int[]
+
+  channels           Channel[] // which channels are active for this rule
+
+  emailTemplate      String?
+  smsTemplate        String?
+  whatsappTemplateId String? // Meta-approved template ID (not raw text)
+
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@index([clientCompanyId])
+}
+
+enum Channel {
+  EMAIL
+  SMS
+  WHATSAPP
+}
+
+// -------------------------------------------------------------------
+// ReminderSent — audit log of every reminder dispatched
+// -------------------------------------------------------------------
+model ReminderSent {
+  id         String     @id @default(cuid())
+  party      Party      @relation(fields: [partyId], references: [id], onDelete: Cascade)
+  partyId    String
+  invoice    Invoice    @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoiceId  String
+
+  channel    Channel
+  sentAt     DateTime   @default(now())
+
+  providerId String? // external message ID (WhatsApp message_id, SMS request_id, etc.)
+  status     SendStatus @default(SENT)
+  error      String?
+
+  @@index([partyId])
+  @@index([invoiceId])
+  @@index([sentAt])
+}
+
+enum SendStatus {
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  BOUNCED
+}

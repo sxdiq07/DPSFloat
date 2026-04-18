@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/compute-ageing",
+      "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/cron/send-reminders",
+      "schedule": "30 4 * * *"
+    }
+  ]
+}
