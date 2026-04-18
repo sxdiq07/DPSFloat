@@ -10,3 +10,10 @@ build/
 __pycache__/
 *.pyc
 .venv/
+
+# Tally data files — never commit
+*.rar
+*.001
+*.1800
+*.TSF
+Tally_Work/
