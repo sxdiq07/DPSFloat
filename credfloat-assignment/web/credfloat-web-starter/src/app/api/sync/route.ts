@@ -18,10 +18,21 @@ const partySchema = z.object({
   whatsapp_number: z.string().nullable().optional(),
 });
 
+const invoiceSchema = z.object({
+  company: z.string().min(1),
+  tally_ledger_name: z.string().min(1),
+  bill_ref: z.string().min(1),
+  bill_date: z.string().min(1),
+  due_date: z.string().nullable().optional(),
+  original_amount: z.number(),
+  outstanding_amount: z.number(),
+});
+
 const syncSchema = z.object({
   synced_at: z.string(),
   companies: z.array(z.object({ tally_name: z.string().min(1) })),
   parties: z.array(partySchema),
+  invoices: z.array(invoiceSchema).optional().default([]),
 });
 
 export async function POST(req: NextRequest) {
@@ -53,7 +64,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { synced_at, companies, parties } = parsed.data;
+  const { synced_at, companies, parties, invoices } = parsed.data;
   const syncedAt = new Date(synced_at);
 
   // Prefer the explicit SEED_FIRM_ID env var (stable across renames); fall
@@ -189,13 +200,122 @@ export async function POST(req: NextRequest) {
     `;
   }
 
+  // --- Bill-wise invoices (bulk upsert, same pattern as parties) ---
+  let invoiceCount = 0;
+  let invoiceSkipped = 0;
+
+  if (invoices.length > 0) {
+    // Need partyId by (clientCompanyId, tallyLedgerName) — one query covers
+    // every incoming invoice. No N+1.
+    const companyIds = [...companyNameToId.values()];
+    const existingParties = await prisma.party.findMany({
+      where: { clientCompanyId: { in: companyIds } },
+      select: { id: true, clientCompanyId: true, tallyLedgerName: true },
+    });
+    const partyKey = (clientCompanyId: string, ledger: string) =>
+      `${clientCompanyId}::${ledger}`;
+    const partyIdByKey = new Map(
+      existingParties.map((p) => [
+        partyKey(p.clientCompanyId, p.tallyLedgerName),
+        p.id,
+      ]),
+    );
+
+    type InvoiceRow = {
+      id: string;
+      clientCompanyId: string;
+      partyId: string;
+      billRef: string;
+      billDate: Date;
+      dueDate: Date | null;
+      originalAmount: number;
+      outstandingAmount: number;
+    };
+    const invoiceRows: InvoiceRow[] = [];
+
+    for (const inv of invoices) {
+      const companyId = companyNameToId.get(inv.company);
+      if (!companyId) {
+        invoiceSkipped++;
+        continue;
+      }
+      const partyId = partyIdByKey.get(
+        partyKey(companyId, inv.tally_ledger_name),
+      );
+      if (!partyId) {
+        // Invoice references a debtor we haven't seen yet — skip gracefully.
+        // Next sync will include the party and the retry will land.
+        invoiceSkipped++;
+        continue;
+      }
+      invoiceRows.push({
+        id: randomUUID(),
+        clientCompanyId: companyId,
+        partyId,
+        billRef: inv.bill_ref,
+        billDate: new Date(inv.bill_date),
+        dueDate: inv.due_date ? new Date(inv.due_date) : null,
+        originalAmount: inv.original_amount,
+        outstandingAmount: inv.outstanding_amount,
+      });
+      invoiceCount++;
+    }
+
+    for (let i = 0; i < invoiceRows.length; i += CHUNK) {
+      const chunk = invoiceRows.slice(i, i + CHUNK);
+      const values = chunk.map(
+        (r) => Prisma.sql`(
+          ${r.id},
+          ${r.clientCompanyId},
+          ${r.partyId},
+          ${r.billRef},
+          ${r.billDate},
+          ${r.dueDate},
+          ${r.originalAmount},
+          ${r.outstandingAmount},
+          'OPEN'::"InvoiceStatus",
+          'CURRENT'::"AgeBucket",
+          ${syncedAt},
+          NOW(),
+          NOW()
+        )`,
+      );
+      await prisma.$executeRaw`
+        INSERT INTO "Invoice" (
+          "id",
+          "clientCompanyId",
+          "partyId",
+          "billRef",
+          "billDate",
+          "dueDate",
+          "originalAmount",
+          "outstandingAmount",
+          "status",
+          "ageBucket",
+          "lastSyncedAt",
+          "createdAt",
+          "updatedAt"
+        )
+        VALUES ${Prisma.join(values, ",")}
+        ON CONFLICT ("clientCompanyId", "partyId", "billRef") DO UPDATE SET
+          "billDate" = EXCLUDED."billDate",
+          "dueDate" = EXCLUDED."dueDate",
+          "originalAmount" = EXCLUDED."originalAmount",
+          "outstandingAmount" = EXCLUDED."outstandingAmount",
+          "lastSyncedAt" = EXCLUDED."lastSyncedAt",
+          "updatedAt" = NOW()
+      `;
+    }
+  }
+
   const durationMs = Date.now() - startedAt;
 
   return NextResponse.json({
     synced: {
       companies: companies.length,
       parties: partyCount,
-      skipped,
+      invoices: invoiceCount,
+      skipped: skipped + invoiceSkipped,
     },
     durationMs,
     timestamp: new Date().toISOString(),

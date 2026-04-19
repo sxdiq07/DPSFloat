@@ -32,13 +32,17 @@ import pyodbc
 import requests
 from dotenv import load_dotenv
 
+from tally_invoices import fetch_bill_wise_outstanding, InvoiceRecord
+
 load_dotenv()
 
 # --- Configuration ---
 DSN = os.getenv("TALLY_DSN", "TallyODBC_9000")
 API_URL = os.getenv("CREDFLOAT_API_URL", "http://localhost:3000/api/sync")
 API_KEY = os.getenv("CREDFLOAT_API_KEY", "")
+TALLY_HTTP_URL = os.getenv("TALLY_HTTP_URL", "http://localhost:9000")
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
+SKIP_INVOICES = os.getenv("SKIP_INVOICES", "false").lower() == "true"
 
 # --- Logging ---
 logging.basicConfig(
@@ -75,6 +79,7 @@ class SyncPayload:
     synced_at: str
     companies: list = field(default_factory=list)
     parties: list = field(default_factory=list)
+    invoices: list = field(default_factory=list)
 
 
 # --- Tally ODBC Reader ---
@@ -218,6 +223,7 @@ def main():
         log.info(f"Tally reports {len(companies)} companies loaded.")
 
         all_parties = []
+        all_invoices: list[InvoiceRecord] = []
         for c in companies:
             # V1: reads only from the active company. Multi-company iteration
             # requires SELECT COMPANY via Tally XML (Phase 2).
@@ -227,14 +233,25 @@ def main():
             log.info(f"  {c.tally_name}: {len(parties)} debtors with outstanding")
             all_parties.extend(parties)
 
+            # Bill-wise outstanding via Tally XML HTTP (separate channel
+            # from ODBC, same port). Set SKIP_INVOICES=true if the XML
+            # server is disabled or the TDL needs tuning for this build.
+            if not SKIP_INVOICES:
+                invoices = fetch_bill_wise_outstanding(
+                    c.tally_name, tally_url=TALLY_HTTP_URL
+                )
+                log.info(f"  {c.tally_name}: {len(invoices)} bill-wise entries")
+                all_invoices.extend(invoices)
+
         payload = SyncPayload(
             synced_at=datetime.utcnow().isoformat() + "Z",
             companies=[asdict(c) for c in companies],
             parties=[asdict(p) for p in all_parties],
+            invoices=[asdict(i) for i in all_invoices],
         )
         log.info(
             f"Prepared sync: {len(payload.companies)} companies, "
-            f"{len(payload.parties)} parties."
+            f"{len(payload.parties)} parties, {len(payload.invoices)} invoices."
         )
         push_to_api(payload)
 
