@@ -42,11 +42,6 @@ export default async function ClientDetailPage({
         include: { party: true },
         orderBy: [{ ageBucket: "desc" }, { dueDate: "asc" }],
       },
-      remindersSent: {
-        include: { party: true, invoice: true },
-        orderBy: { sentAt: "desc" },
-        take: 100,
-      },
       notes: {
         orderBy: { createdAt: "desc" },
         take: 100,
@@ -56,6 +51,14 @@ export default async function ClientDetailPage({
   });
 
   if (!client) notFound();
+
+  // ReminderSent reached via Invoice (no direct relation on ClientCompany)
+  const remindersSent = await prisma.reminderSent.findMany({
+    where: { invoice: { clientCompanyId: client.id } },
+    include: { party: true, invoice: true },
+    orderBy: { sentAt: "desc" },
+    take: 100,
+  });
 
   const session = await (await import("@/lib/auth")).auth();
   const currentUserId = session?.user?.id ?? null;
@@ -126,7 +129,7 @@ export default async function ClientDetailPage({
       canDelete: n.author.id === currentUserId || session?.user?.role === "PARTNER",
     });
   }
-  for (const r of client.remindersSent.slice(0, 30)) {
+  for (const r of remindersSent.slice(0, 30)) {
     timeline.push({
       key: `r-${r.id}`,
       kind: "reminder",
@@ -306,7 +309,7 @@ export default async function ClientDetailPage({
           <TabsTrigger value="reminders">
             Reminder log
             <span className="ml-2 text-[11px] text-ink-3">
-              {client.remindersSent.length}
+              {remindersSent.length}
             </span>
           </TabsTrigger>
         </TabsList>
@@ -442,7 +445,7 @@ export default async function ClientDetailPage({
 
         <TabsContent value="reminders" className="m-0">
           <div className="card-apple overflow-hidden">
-            {client.remindersSent.length === 0 ? (
+            {remindersSent.length === 0 ? (
               <EmptyRow
                 title="No reminders sent yet"
                 body="Reminders will appear here once the cron fires for a trigger day."
@@ -459,7 +462,7 @@ export default async function ClientDetailPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {client.remindersSent.map((r, i) => (
+                  {remindersSent.map((r, i) => (
                     <tr
                       key={r.id}
                       className={`row-interactive ${i > 0 ? "border-t border-subtle" : "border-t border-subtle"}`}
