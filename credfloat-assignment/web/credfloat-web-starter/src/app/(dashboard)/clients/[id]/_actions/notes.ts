@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, requireFirmId } from "@/lib/session";
+import { logActivity } from "@/lib/activity";
 
 const addSchema = z.object({
   clientCompanyId: z.string(),
@@ -32,6 +33,14 @@ export async function addNote(
         body: parsed.data.body,
       },
     });
+    await logActivity({
+      firmId,
+      actorId: session.user.id,
+      action: "note.added",
+      targetType: "Note",
+      targetId: note.id,
+      meta: { clientCompanyId: client.id, partyId: parsed.data.partyId ?? null },
+    });
     revalidatePath(`/clients/${client.id}`);
     return { ok: true, id: note.id };
   } catch (err) {
@@ -56,6 +65,14 @@ export async function deleteNote(
       return { ok: false, error: "Not permitted" };
     }
     await prisma.note.delete({ where: { id: note.id } });
+    await logActivity({
+      firmId,
+      actorId: session.user.id,
+      action: "note.deleted",
+      targetType: "Note",
+      targetId: note.id,
+      meta: { clientCompanyId: note.clientCompanyId },
+    });
     revalidatePath(`/clients/${note.clientCompanyId}`);
     return { ok: true };
   } catch (err) {

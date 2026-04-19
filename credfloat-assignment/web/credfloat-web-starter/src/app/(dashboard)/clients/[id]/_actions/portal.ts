@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, requireFirmId } from "@/lib/session";
+import { logActivity } from "@/lib/activity";
 
 export async function generatePortalToken(
   clientId: string,
@@ -30,12 +31,23 @@ export async function generatePortalToken(
     const token = crypto.randomBytes(24).toString("base64url");
     const expiresAt = new Date(Date.now() + expiresInDays * 86400_000);
 
-    await prisma.portalToken.create({
+    const created = await prisma.portalToken.create({
       data: {
         clientCompanyId: client.id,
         token,
         createdBy: session.user.id,
         expiresAt,
+      },
+    });
+    await logActivity({
+      firmId,
+      actorId: session.user.id,
+      action: "portal_token.generated",
+      targetType: "PortalToken",
+      targetId: created.id,
+      meta: {
+        clientCompanyId: client.id,
+        expiresAt: expiresAt.toISOString(),
       },
     });
 
@@ -59,6 +71,7 @@ export async function revokePortalToken(
   tokenId: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
+    const session = await requireAuth();
     const firmId = await requireFirmId();
     const tok = await prisma.portalToken.findFirst({
       where: { id: tokenId, clientCompany: { firmId } },
@@ -68,6 +81,14 @@ export async function revokePortalToken(
     await prisma.portalToken.update({
       where: { id: tok.id },
       data: { revokedAt: new Date() },
+    });
+    await logActivity({
+      firmId,
+      actorId: session.user.id,
+      action: "portal_token.revoked",
+      targetType: "PortalToken",
+      targetId: tok.id,
+      meta: { clientCompanyId: tok.clientCompanyId },
     });
     revalidatePath(`/clients/${tok.clientCompanyId}`);
     return { ok: true };

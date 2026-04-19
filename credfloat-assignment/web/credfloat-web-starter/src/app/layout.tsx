@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { ServiceWorkerRegistrar } from "@/components/sw-register";
 
 export const metadata: Metadata = {
   title: "Ledger · DPS & Co",
@@ -35,6 +36,7 @@ export default function RootLayout({
         <ThemeProvider>
           {children}
           <Toaster position="bottom-right" closeButton richColors />
+          <ServiceWorkerRegistrar />
         </ThemeProvider>
       </body>
     </html>

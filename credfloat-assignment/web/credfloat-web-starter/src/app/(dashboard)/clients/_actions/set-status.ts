@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireFirmId } from "@/lib/session";
+import { requireAuth, requireFirmId } from "@/lib/session";
+import { logActivity } from "@/lib/activity";
 
 type Status = "ACTIVE" | "PAUSED" | "ARCHIVED";
 
@@ -11,15 +12,24 @@ export async function setClientStatus(
   status: Status,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
+    const session = await requireAuth();
     const firmId = await requireFirmId();
     const client = await prisma.clientCompany.findFirst({
       where: { id: clientId, firmId },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (!client) return { ok: false, error: "Client not found" };
     await prisma.clientCompany.update({
       where: { id: client.id },
       data: { status },
+    });
+    await logActivity({
+      firmId,
+      actorId: session.user.id,
+      action: "client.status.changed",
+      targetType: "ClientCompany",
+      targetId: client.id,
+      meta: { from: client.status, to: status },
     });
     revalidatePath("/clients");
     revalidatePath(`/clients/${client.id}`);

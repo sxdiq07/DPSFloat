@@ -324,6 +324,24 @@ model SavedView {
 }
 
 // -------------------------------------------------------------------
+// ActivityLog — append-only audit trail, DPDP-grade
+// -------------------------------------------------------------------
+model ActivityLog {
+  id         String   @id @default(cuid())
+  firmId     String
+  actorId    String?
+  action     String
+  targetType String
+  targetId   String
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  @@index([firmId, createdAt])
+  @@index([targetType, targetId])
+  @@index([actorId])
+}
+
+// -------------------------------------------------------------------
 // PortalToken — signed read-only magic-link for a client
 // -------------------------------------------------------------------
 model PortalToken {

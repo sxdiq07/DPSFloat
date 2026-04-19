@@ -12,6 +12,8 @@ import { StatCard } from "@/components/ui/stat-card";
 import { ExportDebtorsButton } from "./_components/export-debtors-button";
 import { NotesTimeline, type TimelineEvent } from "./_components/notes-timeline";
 import { PromisesPanel, type PromiseRow } from "./_components/promises-panel";
+import { computeReliability, reliabilityTone } from "@/lib/reliability";
+import { computeAgeBucket, daysOverdue } from "@/lib/ageing";
 import {
   PortalLinkPanel,
   type PortalTokenRow,
@@ -349,33 +351,61 @@ export default async function ClientDetailPage({
                     <th className="px-8 py-4 text-left font-medium">
                       Reachable via
                     </th>
+                    <th className="px-8 py-4 text-left font-medium">
+                      Reliability
+                    </th>
                     <th className="px-8 py-4 text-right font-medium">
                       Outstanding
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {partiesWithBalance.map((p, i) => (
-                    <tr
-                      key={p.id}
-                      className={`row-interactive ${i > 0 ? "border-t border-subtle" : "border-t border-subtle"}`}
-                    >
-                      <td className="px-8 py-4 font-medium text-ink">
-                        {p.mailingName || p.tallyLedgerName}
-                      </td>
-                      <td className="px-8 py-4">
-                        <ContactIcons
-                          email={p.email}
-                          phone={p.phone}
-                          whatsapp={p.whatsappNumber}
-                          address={p.address}
-                        />
-                      </td>
-                      <td className="tabular px-8 py-4 text-right font-medium text-ink">
-                        {formatINR(Number(p.closingBalance))}
-                      </td>
-                    </tr>
-                  ))}
+                  {partiesWithBalance.map((p, i) => {
+                    const kept = p.promises.filter(
+                      (pr) => pr.status === "KEPT",
+                    ).length;
+                    const broken = p.promises.filter(
+                      (pr) => pr.status === "BROKEN",
+                    ).length;
+                    const openPastDue = 0;
+                    const partyInvoices = client.invoices.filter(
+                      (inv) => inv.partyId === p.id && inv.dueDate,
+                    );
+                    const maxOverdue = partyInvoices.reduce((m, inv) => {
+                      const d = daysOverdue(inv.dueDate!);
+                      return Math.max(m, Math.max(0, d));
+                    }, 0);
+                    const score = computeReliability({
+                      kept,
+                      broken,
+                      openPastDue,
+                      daysOverdueMax: maxOverdue,
+                    });
+                    return (
+                      <tr
+                        key={p.id}
+                        className={`row-interactive ${i > 0 ? "border-t border-subtle" : "border-t border-subtle"}`}
+                      >
+                        <td className="px-8 py-4 font-medium text-ink">
+                          {p.mailingName || p.tallyLedgerName}
+                        </td>
+                        <td className="px-8 py-4">
+                          <ContactIcons
+                            email={p.email}
+                            phone={p.phone}
+                            whatsapp={p.whatsappNumber}
+                            address={p.address}
+                          />
+                        </td>
+                        <td className="px-8 py-4">
+                          <ReliabilityPill score={score} />
+                        </td>
+                        <td className="tabular px-8 py-4 text-right font-medium text-ink">
+                          {formatINR(Number(p.closingBalance))}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
@@ -651,6 +681,30 @@ function StatusPill({ status }: { status: string }) {
   return (
     <span className="pill" style={{ background: s.bg, color: s.color }}>
       {status.toLowerCase()}
+    </span>
+  );
+}
+
+function ReliabilityPill({ score }: { score: number | null }) {
+  if (score === null) {
+    return <span className="text-[12.5px] text-ink-3">—</span>;
+  }
+  const tone = reliabilityTone(score);
+  const styles: Record<string, { bg: string; color: string }> = {
+    success: { bg: "rgba(48,209,88,0.14)", color: "#1f7a4a" },
+    accent:  { bg: "rgba(10,132,255,0.10)", color: "#0057b7" },
+    warning: { bg: "rgba(255,159,10,0.14)", color: "#9c5700" },
+    danger:  { bg: "rgba(255,69,58,0.12)",  color: "#c6373a" },
+    neutral: { bg: "rgba(134,134,139,0.12)", color: "var(--color-ink-2)" },
+  };
+  const s = styles[tone];
+  return (
+    <span
+      className="pill tabular"
+      style={{ background: s.bg, color: s.color }}
+      title={`Reliability score · ${score}/100 (weighted: promise keep-rate, effective rate, days-overdue penalty)`}
+    >
+      {score}/100
     </span>
   );
 }

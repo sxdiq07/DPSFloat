@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, requireFirmId } from "@/lib/session";
+import { logActivity } from "@/lib/activity";
 
 const addSchema = z.object({
   name: z.string().min(1).max(80),
@@ -33,7 +34,7 @@ export async function addStaff(
     });
     if (existing) return { ok: false, error: "Email already registered" };
 
-    await prisma.firmStaff.create({
+    const created = await prisma.firmStaff.create({
       data: {
         firmId,
         email: parsed.data.email.toLowerCase(),
@@ -41,6 +42,14 @@ export async function addStaff(
         passwordHash: await bcrypt.hash(parsed.data.password, 10),
         role: parsed.data.role,
       },
+    });
+    await logActivity({
+      firmId,
+      actorId: session.user.id,
+      action: "staff.added",
+      targetType: "FirmStaff",
+      targetId: created.id,
+      meta: { email: created.email, role: created.role },
     });
     revalidatePath("/settings");
     return { ok: true };
@@ -82,6 +91,13 @@ export async function removeStaff(
     }
 
     await prisma.firmStaff.delete({ where: { id: target.id } });
+    await logActivity({
+      firmId,
+      actorId: session.user.id,
+      action: "staff.removed",
+      targetType: "FirmStaff",
+      targetId: target.id,
+    });
     revalidatePath("/settings");
     return { ok: true };
   } catch (err) {

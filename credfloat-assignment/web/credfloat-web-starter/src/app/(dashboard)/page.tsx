@@ -9,6 +9,8 @@ import { AnimatedNumber } from "@/components/ui/animated-number";
 import { StatCard } from "@/components/ui/stat-card";
 import { StackedBar } from "@/components/ui/stacked-bar";
 import { PipelineStory } from "./_components/pipeline-story";
+import { DuplicateExposure } from "./_components/duplicate-exposure";
+import { groupDuplicates, type DupCandidate } from "@/lib/duplicates";
 import { formatDistanceToNow } from "date-fns";
 
 export const dynamic = "force-dynamic";
@@ -101,6 +103,33 @@ export default async function OverviewPage() {
     prisma.party.count({ where: { clientCompany: { firmId } } }),
     prisma.clientCompany.count({ where: { firmId } }),
   ]);
+
+  // Cross-client duplicate detection — pull all parties in the firm with
+  // positive balance, group by normalized name.
+  const dupSource = await prisma.party.findMany({
+    where: {
+      clientCompany: { firmId },
+      closingBalance: { gt: 0 },
+    },
+    select: {
+      id: true,
+      tallyLedgerName: true,
+      mailingName: true,
+      closingBalance: true,
+      clientCompanyId: true,
+      clientCompany: { select: { displayName: true } },
+    },
+  });
+  const dupGroups = groupDuplicates(
+    dupSource.map<DupCandidate>((p) => ({
+      id: p.id,
+      tallyLedgerName: p.tallyLedgerName,
+      mailingName: p.mailingName,
+      closingBalance: Number(p.closingBalance),
+      clientCompanyId: p.clientCompanyId,
+      clientCompanyName: p.clientCompany.displayName,
+    })),
+  ).slice(0, 10);
 
   // Secondary queries for the storytelling section
   const [reachableCount, lastSync] = await Promise.all([
@@ -269,6 +298,9 @@ export default async function OverviewPage() {
         </div>
         <StackedBar segments={ageingData} />
       </section>
+
+      {/* Duplicate cross-client exposure */}
+      <DuplicateExposure groups={dupGroups} />
 
       {/* Top clients */}
       <section className="card-apple overflow-hidden">
