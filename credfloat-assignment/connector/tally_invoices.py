@@ -1,23 +1,28 @@
 """
-Bill-wise outstanding invoice extraction via Tally XML HTTP.
+Bill-wise outstanding extraction via Tally XML HTTP.
 
-Tally ODBC is great for ledger-level data but cannot surface bill-wise
-outstanding entries. For that we POST an XML envelope to Tally's HTTP
-server (same port 9000) and parse the response.
+Uses Tally's built-in `Bills` collection with an explicit FETCH list.
+Tested against Tally Prime 7.x / Tally.ERP 9.
 
-Requires "TallyPrime is acting as: Both" (ODBC + Web Server) in
-F1 → Settings → Connectivity. Same toggle the ODBC side uses.
+Key schema findings (verified against a real ledger):
+  <BILL NAME="..." RESERVEDNAME="...">
+    <NAME>bill ref</NAME>
+    <PARENT>party ledger name</PARENT>
+    <BILLDATE>YYYYMMDD</BILLDATE>
+    <BILLCREDITPERIOD>30 Days</BILLCREDITPERIOD> (often empty)
+    <OPENINGBALANCE>positive = debtor owes</OPENINGBALANCE>
+    <CLOSINGBALANCE>current balance after adjustments</CLOSINGBALANCE>
+  </BILL>
 
-Tested against Tally Prime 7.x with the default Bills collection TDL
-shipped in this file. If the ledger schema differs for your installation
-(older Tally.ERP 9 or custom TDL), the OUTSTANDING_TDL request body
-below is the single place to adjust.
+CLOSINGBALANCE > 0 = debtor still owes (filter).
+CLOSINGBALANCE <= 0 = paid / credit-note / overpayment (skip).
 """
 
 import logging
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 import requests
@@ -27,24 +32,21 @@ log = logging.getLogger("credfloat-connector.invoices")
 
 @dataclass
 class InvoiceRecord:
-    company: str                  # Tally company name (matches ClientCompany.tallyCompanyName)
-    tally_ledger_name: str        # debtor ledger name (maps to Party.tallyLedgerName)
-    bill_ref: str                 # unique bill reference
+    company: str                  # matches ClientCompany.tallyCompanyName
+    tally_ledger_name: str        # party's ledger name (maps to Party.tallyLedgerName)
+    bill_ref: str
     bill_date: str                # ISO yyyy-mm-dd
-    due_date: Optional[str]       # ISO yyyy-mm-dd; None if no credit period
-    original_amount: float        # original bill amount
-    outstanding_amount: float     # current balance (what we care about)
+    due_date: Optional[str]
+    original_amount: float
+    outstanding_amount: float
 
 
-# TDL that fetches every bill with a non-zero debtor opening balance.
-# `$$IsDr:$OpeningBalance` filters to debtor-side bills (positive when owed).
-# `$BillCreditPeriod` is used to compute due date = BillDate + credit days.
 OUTSTANDING_TDL = """<ENVELOPE>
   <HEADER>
     <VERSION>1</VERSION>
     <TALLYREQUEST>Export</TALLYREQUEST>
     <TYPE>Collection</TYPE>
-    <ID>CredFloatBillsOutstanding</ID>
+    <ID>CredFloatAllBills</ID>
   </HEADER>
   <BODY>
     <DESC>
@@ -53,12 +55,10 @@ OUTSTANDING_TDL = """<ENVELOPE>
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
-          <COLLECTION NAME="CredFloatBillsOutstanding" ISMODIFY="No">
+          <COLLECTION NAME="CredFloatAllBills" ISMODIFY="No">
             <TYPE>Bills</TYPE>
-            <FETCH>$Name, $PartyLedgerName, $BillDate, $BillCreditPeriod, $OpeningBalance, $Amount</FETCH>
-            <FILTER>CredFloatIsDebtor</FILTER>
+            <FETCH>Name, Parent, BillDate, BillCreditPeriod, OpeningBalance, ClosingBalance</FETCH>
           </COLLECTION>
-          <SYSTEM TYPE="Formulae" NAME="CredFloatIsDebtor">$$IsDr:$OpeningBalance AND NOT $$IsEmpty:$PartyLedgerName</SYSTEM>
         </TDLMESSAGE>
       </TDL>
     </DESC>
@@ -66,10 +66,15 @@ OUTSTANDING_TDL = """<ENVELOPE>
 </ENVELOPE>
 """
 
+# XML 1.0 allows: 0x9, 0xA, 0xD, 0x20-0xD7FF, 0xE000-0xFFFD, 0x10000-0x10FFFF
+# Tally sometimes emits out-of-range bytes (NULs, 0x01-0x08, etc.) that break
+# strict XML parsers. Strip them before parsing.
+_INVALID_XML_RE = re.compile(
+    rb"[\x00-\x08\x0B\x0C\x0E-\x1F]",
+)
+
 
 def _parse_tally_date(s: Optional[str]) -> Optional[str]:
-    """Tally dates come in multiple formats — yyyymmdd, d-MMM-yyyy, etc.
-    Normalise to ISO yyyy-mm-dd; return None on garbage."""
     if not s:
         return None
     s = s.strip()
@@ -80,14 +85,12 @@ def _parse_tally_date(s: Optional[str]) -> Optional[str]:
             return datetime.strptime(s, fmt).date().isoformat()
         except ValueError:
             continue
-    log.warning(f"Could not parse Tally date: {s!r}")
     return None
 
 
 def _parse_credit_days(s: Optional[str]) -> int:
     if not s:
         return 0
-    # Tally credit-period is typed like '30 Days' or just '30'
     digits = "".join(ch for ch in s if ch.isdigit())
     return int(digits) if digits else 0
 
@@ -95,16 +98,9 @@ def _parse_credit_days(s: Optional[str]) -> int:
 def _parse_amount(s: Optional[str]) -> float:
     if not s:
         return 0.0
-    # Tally amount looks like "12345.00 Dr" or "-1234.00"
     s = s.strip().replace(",", "")
-    sign = 1.0
-    if s.endswith("Cr"):
-        sign = -1.0
-        s = s[:-2].strip()
-    elif s.endswith("Dr"):
-        s = s[:-2].strip()
     try:
-        return sign * float(s)
+        return float(s)
     except ValueError:
         return 0.0
 
@@ -112,14 +108,14 @@ def _parse_amount(s: Optional[str]) -> float:
 def fetch_bill_wise_outstanding(
     company_name: str,
     tally_url: str = "http://localhost:9000",
-    timeout: int = 60,
+    timeout: int = 120,
 ) -> list[InvoiceRecord]:
     """
-    Synchronous XML HTTP request to Tally. Returns one InvoiceRecord per
-    open debtor bill. Empty list if the report is empty or Tally is down.
+    Returns one InvoiceRecord per open debtor bill (CLOSINGBALANCE > 0).
+    Silent empty list on Tally errors — the caller logs counts.
     """
     body = OUTSTANDING_TDL.format(company=_xml_escape(company_name))
-    log.info(f"Fetching bill-wise outstanding from Tally (company={company_name})")
+    log.info(f"Fetching bill-wise outstanding (company={company_name})")
 
     try:
         r = requests.post(
@@ -133,9 +129,7 @@ def fetch_bill_wise_outstanding(
         log.error(f"Tally XML HTTP request failed: {e}")
         return []
 
-    # Tally often emits non-strict XML with stray whitespace and sometimes
-    # Windows-1252 bytes. Best-effort parse; log and continue on error.
-    raw = r.content
+    raw = _INVALID_XML_RE.sub(b" ", r.content)
     try:
         root = ET.fromstring(raw)
     except ET.ParseError as e:
@@ -143,48 +137,57 @@ def fetch_bill_wise_outstanding(
         return []
 
     invoices: list[InvoiceRecord] = []
-    # Look for BILLS or BILLS.LIST children — the exact path varies by TDL
-    # response shape. We scan for any element whose tag starts with BILLS.
-    for node in root.iter():
-        if not node.tag or not node.tag.upper().startswith("BILLS"):
+    skipped_settled = 0
+    skipped_bad_party = 0
+    skipped_bad_date = 0
+
+    for bill in root.iter("BILL"):
+        name = (bill.findtext("NAME") or bill.get("NAME") or "").strip()
+        party = (bill.findtext("PARENT") or "").strip()
+        bill_date = _parse_tally_date(bill.findtext("BILLDATE"))
+        credit_days = _parse_credit_days(bill.findtext("BILLCREDITPERIOD"))
+        opening = _parse_amount(bill.findtext("OPENINGBALANCE"))
+        closing = _parse_amount(bill.findtext("CLOSINGBALANCE"))
+
+        if not name or not party:
+            skipped_bad_party += 1
             continue
-        # Each bills node may contain repeated BILL entries
-        bills = (
-            list(node.findall("BILL"))
-            or list(node.findall("BILLS"))
-            or [node]
+        if not bill_date:
+            skipped_bad_date += 1
+            continue
+        # Outstanding = current closing balance. If <= 0 the bill is settled
+        # or a credit-note / overpayment that we don't chase for.
+        outstanding = closing if closing > 0 else 0
+        if outstanding <= 0.01:
+            skipped_settled += 1
+            continue
+
+        # Credit-period missing → treat bill-date as due-date so the
+        # ageing cron can classify the bill. Most real Tally bills don't
+        # have explicit credit periods.
+        d = datetime.fromisoformat(bill_date).date()
+        due_date = (
+            (d + timedelta(days=credit_days)).isoformat()
+            if credit_days > 0
+            else d.isoformat()
         )
-        for b in bills:
-            name = (b.findtext("NAME") or b.findtext("BILLNAME") or "").strip()
-            party = (b.findtext("PARTYLEDGERNAME") or "").strip()
-            bill_date = _parse_tally_date(b.findtext("BILLDATE"))
-            credit_days = _parse_credit_days(b.findtext("BILLCREDITPERIOD"))
-            opening = _parse_amount(b.findtext("OPENINGBALANCE"))
-            amount = _parse_amount(b.findtext("AMOUNT") or b.findtext("OPENINGBALANCE"))
 
-            # Only debtor bills (positive opening)
-            if opening <= 0 or not name or not party or not bill_date:
-                continue
-
-            due_date = None
-            if credit_days > 0:
-                d = datetime.fromisoformat(bill_date).date()
-                due_date = (d.toordinal() + credit_days)
-                due_date = date.fromordinal(due_date).isoformat()
-
-            invoices.append(
-                InvoiceRecord(
-                    company=company_name,
-                    tally_ledger_name=party,
-                    bill_ref=name,
-                    bill_date=bill_date,
-                    due_date=due_date,
-                    original_amount=abs(amount) or opening,
-                    outstanding_amount=opening,
-                )
+        invoices.append(
+            InvoiceRecord(
+                company=company_name,
+                tally_ledger_name=party,
+                bill_ref=name,
+                bill_date=bill_date,
+                due_date=due_date,
+                original_amount=abs(opening) or outstanding,
+                outstanding_amount=outstanding,
             )
+        )
 
-    log.info(f"  Parsed {len(invoices)} bill-wise outstanding entries")
+    log.info(
+        f"  Parsed {len(invoices)} open bills · {skipped_settled} settled/credit · "
+        f"{skipped_bad_party} missing-party · {skipped_bad_date} bad-date"
+    )
     return invoices
 
 

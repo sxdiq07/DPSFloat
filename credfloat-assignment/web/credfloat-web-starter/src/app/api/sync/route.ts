@@ -221,6 +221,63 @@ export async function POST(req: NextRequest) {
       ]),
     );
 
+    // Invoices often reference debtor ledgers that weren't surfaced by the
+    // ODBC Sundry-Debtors filter (sub-groups, non-standard groupings). Auto-
+    // create minimal Party stubs for any unknown ledger so we don't drop
+    // bills on the floor. Real contact fields land on the next ODBC sync
+    // that happens to include these ledgers.
+    const unknownParties = new Map<string, { companyId: string; ledger: string }>();
+    for (const inv of invoices) {
+      const companyId = companyNameToId.get(inv.company);
+      if (!companyId) continue;
+      const key = partyKey(companyId, inv.tally_ledger_name);
+      if (!partyIdByKey.has(key) && !unknownParties.has(key)) {
+        unknownParties.set(key, {
+          companyId,
+          ledger: inv.tally_ledger_name,
+        });
+      }
+    }
+    if (unknownParties.size > 0) {
+      const stubRows = [...unknownParties.values()].map((u) => ({
+        id: randomUUID(),
+        clientCompanyId: u.companyId,
+        tallyLedgerName: u.ledger,
+      }));
+      for (let i = 0; i < stubRows.length; i += CHUNK) {
+        const chunk = stubRows.slice(i, i + CHUNK);
+        const values = chunk.map(
+          (r) => Prisma.sql`(
+            ${r.id},
+            ${r.clientCompanyId},
+            ${r.tallyLedgerName},
+            'Sundry Debtors',
+            0,
+            ${syncedAt},
+            NOW(),
+            NOW()
+          )`,
+        );
+        await prisma.$executeRaw`
+          INSERT INTO "Party" (
+            "id", "clientCompanyId", "tallyLedgerName",
+            "parentGroup", "closingBalance",
+            "lastSyncedAt", "createdAt", "updatedAt"
+          )
+          VALUES ${Prisma.join(values, ",")}
+          ON CONFLICT ("clientCompanyId", "tallyLedgerName") DO NOTHING
+        `;
+      }
+      const refreshed = await prisma.party.findMany({
+        where: { clientCompanyId: { in: companyIds } },
+        select: { id: true, clientCompanyId: true, tallyLedgerName: true },
+      });
+      partyIdByKey.clear();
+      for (const p of refreshed) {
+        partyIdByKey.set(partyKey(p.clientCompanyId, p.tallyLedgerName), p.id);
+      }
+    }
+
     type InvoiceRow = {
       id: string;
       clientCompanyId: string;
