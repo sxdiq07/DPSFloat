@@ -9,6 +9,7 @@ import { Mail, Phone, MessageCircle, MapPin, Settings2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatCard } from "@/components/ui/stat-card";
+import { ExportDebtorsButton } from "./_components/export-debtors-button";
 
 export const dynamic = "force-dynamic";
 
@@ -175,6 +176,26 @@ export default async function ClientDetailPage({
 
         <TabsContent value="debtors" className="m-0">
           <div className="card-apple overflow-hidden">
+            {partiesWithBalance.length > 0 && (
+              <div className="flex items-center justify-between border-b border-subtle px-8 py-4">
+                <div className="text-[12.5px] text-ink-3">
+                  {partiesWithBalance.length} debtor
+                  {partiesWithBalance.length === 1 ? "" : "s"} with outstanding
+                  balance, sorted by amount.
+                </div>
+                <ExportDebtorsButton
+                  clientName={client.displayName}
+                  rows={partiesWithBalance.map((p) => ({
+                    name: p.mailingName || p.tallyLedgerName,
+                    email: p.email,
+                    phone: p.phone,
+                    whatsapp: p.whatsappNumber,
+                    address: p.address,
+                    outstanding: Number(p.closingBalance),
+                  }))}
+                />
+              </div>
+            )}
             {partiesWithBalance.length === 0 ? (
               <EmptyRow
                 title="No outstanding debtors"

@@ -104,9 +104,7 @@ export default async function DashboardLayout({
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-6 py-10">
-        <div className="fade-in-up">{children}</div>
-      </main>
+      <main className="mx-auto max-w-7xl px-6 py-10">{children}</main>
 
       <footer className="mx-auto mt-16 max-w-7xl px-6 pb-10 text-[12px] text-ink-3">
         © {new Date().getFullYear()} DPS &amp; Co · Ledger · Press{" "}

@@ -8,6 +8,8 @@ import { PageHeader } from "@/components/ui/page-header";
 import { AnimatedNumber } from "@/components/ui/animated-number";
 import { StatCard } from "@/components/ui/stat-card";
 import { StackedBar } from "@/components/ui/stacked-bar";
+import { PipelineStory } from "./_components/pipeline-story";
+import { formatDistanceToNow } from "date-fns";
 
 export const dynamic = "force-dynamic";
 
@@ -100,6 +102,25 @@ export default async function OverviewPage() {
     prisma.clientCompany.count({ where: { firmId } }),
   ]);
 
+  // Secondary queries for the storytelling section
+  const [reachableCount, lastSync] = await Promise.all([
+    prisma.party.count({
+      where: {
+        clientCompany: { firmId },
+        OR: [
+          { email: { not: null } },
+          { phone: { not: null } },
+          { whatsappNumber: { not: null } },
+        ],
+      },
+    }),
+    prisma.party.findFirst({
+      where: { clientCompany: { firmId } },
+      orderBy: { lastSyncedAt: "desc" },
+      select: { lastSyncedAt: true },
+    }),
+  ]);
+
   const totalOutstanding = Number(totalOutstandingAgg._sum.outstandingAmount ?? 0);
   const overdue90 = Number(overdue90Agg._sum.outstandingAmount ?? 0);
   const collectionsThisMonth = Number(collectionsAgg._sum.amount ?? 0);
@@ -190,6 +211,20 @@ export default async function OverviewPage() {
           </p>
         </div>
       </section>
+
+      {/* Storytelling: pipeline + narrative */}
+      <PipelineStory
+        totalOutstandingCompact={formatINRCompact(totalOutstanding)}
+        partyCount={partyCount}
+        reachableCount={reachableCount}
+        clientCount={clientCount}
+        remindersToday={remindersToday}
+        lastSyncRelative={
+          lastSync?.lastSyncedAt
+            ? formatDistanceToNow(lastSync.lastSyncedAt, { addSuffix: true })
+            : "never"
+        }
+      />
 
       {/* KPI strip */}
       <section className="grid grid-cols-1 gap-5 md:grid-cols-3">

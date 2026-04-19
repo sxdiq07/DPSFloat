@@ -3,8 +3,16 @@
 import { useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ChevronRight, MoreHorizontal, Pause, Play, Search } from "lucide-react";
+import {
+  ChevronRight,
+  Download,
+  MoreHorizontal,
+  Pause,
+  Play,
+  Search,
+} from "lucide-react";
 import { toast } from "sonner";
+import { downloadCSV, toCSV } from "@/lib/csv";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -57,6 +65,34 @@ export function ClientsTable({
     });
   };
 
+  const onExport = () => {
+    if (rows.length === 0) {
+      toast.info("Nothing to export — list is empty.");
+      return;
+    }
+    const csv = toCSV(
+      rows.map((r) => ({
+        name: r.name,
+        status: r.status,
+        outstanding_inr: r.outstanding,
+        overdue_60plus_inr: r.overdue,
+        debtor_count: r.debtorCount,
+        last_synced: r.lastSynced,
+      })),
+      [
+        { key: "name", header: "Client" },
+        { key: "status", header: "Status" },
+        { key: "outstanding_inr", header: "Outstanding (INR)" },
+        { key: "overdue_60plus_inr", header: "Overdue 60+ (INR)" },
+        { key: "debtor_count", header: "Debtors" },
+        { key: "last_synced", header: "Last synced" },
+      ],
+    );
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadCSV(`ledger-clients-${stamp}.csv`, csv);
+    toast.success(`Exported ${rows.length} client${rows.length === 1 ? "" : "s"}`);
+  };
+
   const onPause = (id: string, next: "ACTIVE" | "PAUSED") => {
     startTransition(async () => {
       const res = await setClientStatus(id, next);
@@ -104,6 +140,15 @@ export function ClientsTable({
             );
           })}
         </div>
+        <button
+          type="button"
+          onClick={onExport}
+          className="btn-apple-ghost h-10 gap-1.5 px-3 text-[13px]"
+          aria-label="Export as CSV"
+        >
+          <Download className="h-3.5 w-3.5" />
+          Export
+        </button>
       </div>
 
       <div
