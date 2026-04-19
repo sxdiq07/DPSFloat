@@ -130,7 +130,7 @@ export function ReminderForm({
             <h2 className="mt-2 text-[20px] font-semibold text-ink">
               Automated reminders for {clientName}
             </h2>
-            <p className="mt-1 max-w-xl text-[13.5px] leading-relaxed text-ink-3">
+            <p className="mt-1 max-w-xl text-[14.5px] leading-relaxed text-ink-3">
               When enabled, Ledger dispatches reminders for this client&apos;s
               open invoices each morning at 10:00 IST. Disable to pause
               everything without losing settings.
@@ -149,7 +149,7 @@ export function ReminderForm({
           <h2 className="mt-2 text-[20px] font-semibold text-ink">
             When to fire
           </h2>
-          <p className="mt-1 max-w-xl text-[13.5px] leading-relaxed text-ink-3">
+          <p className="mt-1 max-w-xl text-[14.5px] leading-relaxed text-ink-3">
             Offsets relative to each invoice&apos;s due date. Negative values
             fire before due date (e.g. <span className="tabular">-3</span> is
             three days before). Zero is due-day.
@@ -160,7 +160,7 @@ export function ReminderForm({
           {triggerDays.map((n) => (
             <span
               key={n}
-              className="tabular inline-flex items-center gap-1 rounded-full bg-[var(--color-surface-2)] py-1 pl-3 pr-1.5 text-[13px] font-medium text-ink"
+              className="tabular inline-flex items-center gap-1 rounded-full bg-[var(--color-surface-2)] py-1 pl-3 pr-1.5 text-[14px] font-medium text-ink"
             >
               {n > 0 ? `+${n}` : n}
               <button
@@ -183,7 +183,7 @@ export function ReminderForm({
               }
             }}
             placeholder="Add day… (e.g. -3, 7)"
-            className="tabular h-9 w-40 rounded-full border border-[var(--color-border-hair)] bg-[var(--color-surface-3)] px-3.5 text-[13px] outline-none transition-all placeholder:text-ink-3 focus:border-[var(--color-accent-blue)] focus:ring-4 focus:ring-[rgba(0,113,227,0.12)]"
+            className="tabular h-9 w-40 rounded-full border border-[var(--color-border-hair)] bg-[var(--color-surface-3)] px-3.5 text-[14px] outline-none transition-all placeholder:text-ink-3 focus:border-[var(--color-accent-blue)] focus:ring-4 focus:ring-[rgba(0,113,227,0.12)]"
           />
         </div>
       </section>
@@ -197,7 +197,7 @@ export function ReminderForm({
           <h2 className="mt-2 text-[20px] font-semibold text-ink">
             Where reminders go
           </h2>
-          <p className="mt-1 text-[13.5px] text-ink-3">
+          <p className="mt-1 text-[14.5px] text-ink-3">
             Each debtor gets contacted on every enabled channel they have
             populated in Tally.
           </p>
@@ -217,7 +217,7 @@ export function ReminderForm({
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <div className="text-[14px] font-semibold text-ink">
+                  <div className="text-[15px] font-semibold text-ink">
                     {CHANNEL_LABEL[c]}
                   </div>
                   <div
@@ -260,7 +260,7 @@ export function ReminderForm({
           <h2 className="mt-2 text-[20px] font-semibold text-ink">
             Message copy
           </h2>
-          <p className="mt-1 max-w-2xl text-[13.5px] text-ink-3">
+          <p className="mt-1 max-w-2xl text-[14.5px] text-ink-3">
             Variables:{" "}
             <code className="rounded bg-[var(--color-surface-2)] px-1.5 py-0.5 text-[11.5px]">
               {"{{party_name}}"}
@@ -282,7 +282,7 @@ export function ReminderForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="email-template" className="text-[13px] font-medium text-ink-2">
+          <Label htmlFor="email-template" className="text-[14px] font-medium text-ink-2">
             Email body override
           </Label>
           <Textarea
@@ -291,13 +291,13 @@ export function ReminderForm({
             onChange={(e) => setEmailTemplate(e.target.value)}
             rows={5}
             placeholder="Leave blank for default templates."
-            className="font-mono text-[13px]"
+            className="font-mono text-[14px]"
           />
         </div>
 
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="sms-template" className="text-[13px] font-medium text-ink-2">
+            <Label htmlFor="sms-template" className="text-[14px] font-medium text-ink-2">
               SMS body · 160 char limit
             </Label>
             <Textarea
@@ -306,7 +306,7 @@ export function ReminderForm({
               onChange={(e) => setSmsTemplate(e.target.value.slice(0, 160))}
               rows={3}
               placeholder="Short DLT-approved body."
-              className="font-mono text-[13px]"
+              className="font-mono text-[14px]"
             />
             <div className="tabular text-right text-[11px] text-ink-3">
               {smsTemplate.length}/160
@@ -316,7 +316,7 @@ export function ReminderForm({
           <div className="space-y-2">
             <Label
               htmlFor="whatsapp-template-id"
-              className="text-[13px] font-medium text-ink-2"
+              className="text-[14px] font-medium text-ink-2"
             >
               WhatsApp template ID
             </Label>
@@ -325,7 +325,7 @@ export function ReminderForm({
               value={whatsappTemplateId}
               onChange={(e) => setWhatsappTemplateId(e.target.value)}
               placeholder="payment_reminder"
-              className="h-10 w-full rounded-xl border border-[var(--color-border-hair)] bg-[var(--color-surface-3)] px-3.5 font-mono text-[13px] outline-none transition-all placeholder:text-ink-3 focus:border-[var(--color-accent-blue)] focus:ring-4 focus:ring-[rgba(0,113,227,0.12)]"
+              className="h-10 w-full rounded-xl border border-[var(--color-border-hair)] bg-[var(--color-surface-3)] px-3.5 font-mono text-[14px] outline-none transition-all placeholder:text-ink-3 focus:border-[var(--color-accent-blue)] focus:ring-4 focus:ring-[rgba(0,113,227,0.12)]"
             />
             <p className="text-[11.5px] text-ink-3">
               Must exactly match a Meta-approved template in your Business
@@ -344,7 +344,7 @@ export function ReminderForm({
           <h2 className="mt-2 text-[20px] font-semibold text-ink">
             Send a test reminder
           </h2>
-          <p className="mt-1 text-[13.5px] text-ink-3">
+          <p className="mt-1 text-[14.5px] text-ink-3">
             Dispatches a sample payload to the address you provide. Does not
             write to{" "}
             <code className="rounded bg-[var(--color-surface-2)] px-1.5 py-0.5 text-[11.5px]">
@@ -354,7 +354,7 @@ export function ReminderForm({
           </p>
         </div>
         <div className="flex flex-col gap-3 md:flex-row md:items-center">
-          <div className="flex items-center gap-1 rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-3)] p-1 text-[13px]">
+          <div className="flex items-center gap-1 rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-3)] p-1 text-[14px]">
             {(["EMAIL", "WHATSAPP", "SMS"] as Channel[]).map((c) => {
               const active = testChannel === c;
               return (
@@ -381,7 +381,7 @@ export function ReminderForm({
                 ? "you@example.com"
                 : "+91 98XXXXXXXX"
             }
-            className="h-10 flex-1 rounded-xl border border-[var(--color-border-hair)] bg-[var(--color-surface-3)] px-3.5 text-[13px] outline-none transition-all placeholder:text-ink-3 focus:border-[var(--color-accent-blue)] focus:ring-4 focus:ring-[rgba(0,113,227,0.12)]"
+            className="h-10 flex-1 rounded-xl border border-[var(--color-border-hair)] bg-[var(--color-surface-3)] px-3.5 text-[14px] outline-none transition-all placeholder:text-ink-3 focus:border-[var(--color-accent-blue)] focus:ring-4 focus:ring-[rgba(0,113,227,0.12)]"
           />
           <button
             type="button"

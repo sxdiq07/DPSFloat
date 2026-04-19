@@ -85,7 +85,7 @@ export function PipelineStory({
             {partyCount.toLocaleString("en-IN")} debtor{" "}
             {partyCount === 1 ? "ledger" : "ledgers"} synced from Tally.
           </h2>
-          <p className="mt-3 max-w-2xl text-[14px] leading-relaxed text-ink-3">
+          <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-ink-3">
             {reachableCount > 0 ? (
               <>
                 <span className="text-ink-2">
@@ -117,7 +117,7 @@ export function PipelineStory({
           <div className="mb-3 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-ink-3">
             Pipeline live
           </div>
-          <div className="flex items-center gap-2 text-[13px] text-ink-2">
+          <div className="flex items-center gap-2 text-[14px] text-ink-2">
             <span
               aria-hidden
               className="relative inline-flex h-2 w-2"
@@ -155,7 +155,7 @@ function PipelineNode({ node }: { node: Node }) {
       >
         {node.icon}
       </div>
-      <div className="mt-3 text-[13px] font-semibold text-ink">{node.title}</div>
+      <div className="mt-3 text-[14px] font-semibold text-ink">{node.title}</div>
       <div className="tabular mt-0.5 text-[11.5px] text-ink-3">
         {node.detail}
       </div>

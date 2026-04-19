@@ -71,7 +71,7 @@ export function StackedBar({ segments }: { segments: StackedSegment[] }) {
                 <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-ink-3">
                   {s.label}
                 </div>
-                <div className="tabular mt-0.5 text-[15px] font-semibold text-ink">
+                <div className="tabular mt-0.5 text-[16px] font-semibold text-ink">
                   {inr(s.value)}
                 </div>
                 <div className="tabular text-[11px] text-ink-3">

@@ -123,7 +123,7 @@ export function KeyboardShortcuts() {
                     key={item.label}
                     className="flex items-center justify-between"
                   >
-                    <span className="text-[14px] text-ink-2">{item.label}</span>
+                    <span className="text-[15px] text-ink-2">{item.label}</span>
                     <div className="flex items-center gap-1">
                       {item.keys.map((k, i) => (
                         <kbd

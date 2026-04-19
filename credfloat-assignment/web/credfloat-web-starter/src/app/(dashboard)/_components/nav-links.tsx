@@ -25,7 +25,7 @@ export function NavLinks() {
             key={link.href}
             href={link.href}
             className={[
-              "relative rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors duration-150",
+              "relative rounded-full px-3.5 py-1.5 text-[14px] font-medium transition-colors duration-150",
               active ? "text-ink" : "text-ink-3 hover:text-ink",
             ].join(" ")}
           >

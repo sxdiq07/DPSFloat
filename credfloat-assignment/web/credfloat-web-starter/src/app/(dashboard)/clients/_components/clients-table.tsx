@@ -119,7 +119,7 @@ export function ClientsTable({
               if (e.key === "Enter") applyFilters(query, initialStatus);
             }}
             placeholder="Search clients by name…"
-            className="h-10 w-full rounded-xl border border-[var(--color-border-hair)] bg-[var(--color-surface-3)] pl-9 pr-3 text-[13.5px] text-ink outline-none transition-all placeholder:text-ink-3 focus:border-[var(--color-accent-blue)] focus:ring-4 focus:ring-[rgba(0,113,227,0.12)]"
+            className="h-10 w-full rounded-xl border border-[var(--color-border-hair)] bg-[var(--color-surface-3)] pl-9 pr-3 text-[14.5px] text-ink outline-none transition-all placeholder:text-ink-3 focus:border-[var(--color-accent-blue)] focus:ring-4 focus:ring-[rgba(0,113,227,0.12)]"
           />
         </div>
         <div className="flex items-center gap-1 rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-3)] p-1 text-[12.5px]">
@@ -143,7 +143,7 @@ export function ClientsTable({
         <button
           type="button"
           onClick={onExport}
-          className="btn-apple-ghost h-10 gap-1.5 px-3 text-[13px]"
+          className="btn-apple-ghost h-10 gap-1.5 px-3 text-[14px]"
           aria-label="Export as CSV"
         >
           <Download className="h-3.5 w-3.5" />
@@ -158,7 +158,7 @@ export function ClientsTable({
         {rows.length === 0 ? (
           <EmptyState hasFilters={!!initialQuery || initialStatus !== "all"} />
         ) : (
-          <table className="w-full text-[14px]">
+          <table className="w-full text-[15px]">
             <thead>
               <tr className="text-[11px] uppercase tracking-[0.08em] text-ink-3">
                 <th className="px-8 py-4 text-left font-medium">Client</th>
@@ -260,10 +260,10 @@ export function ClientsTable({
 function EmptyState({ hasFilters }: { hasFilters: boolean }) {
   return (
     <div className="px-8 py-20 text-center">
-      <p className="text-[15px] text-ink-2">
+      <p className="text-[16px] text-ink-2">
         {hasFilters ? "No clients match those filters." : "No client companies yet."}
       </p>
-      <p className="mt-1 text-[13px] text-ink-3">
+      <p className="mt-1 text-[14px] text-ink-3">
         {hasFilters
           ? "Try broadening the search or switching to All."
           : "Run the Tally connector to sync data."}

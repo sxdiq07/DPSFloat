@@ -65,7 +65,7 @@ export function StaffManager({
       <div className="flex items-end justify-between gap-4 px-8 pt-7 pb-5">
         <div>
           <h2 className="text-[18px] font-semibold text-ink">Staff</h2>
-          <p className="mt-1 text-[13px] text-ink-3">
+          <p className="mt-1 text-[14px] text-ink-3">
             Partners see every client. Staff see assigned clients (Phase 2).
           </p>
         </div>
@@ -93,7 +93,7 @@ export function StaffManager({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Full name"
-                className="h-10 w-full rounded-xl border border-[var(--color-border-hair)] bg-[var(--color-surface-3)] px-3.5 text-[13px] outline-none transition-all placeholder:text-ink-3 focus:border-[var(--color-accent-blue)] focus:ring-4 focus:ring-[rgba(0,113,227,0.12)]"
+                className="h-10 w-full rounded-xl border border-[var(--color-border-hair)] bg-[var(--color-surface-3)] px-3.5 text-[14px] outline-none transition-all placeholder:text-ink-3 focus:border-[var(--color-accent-blue)] focus:ring-4 focus:ring-[rgba(0,113,227,0.12)]"
               />
             </div>
             <div className="space-y-1.5">
@@ -106,7 +106,7 @@ export function StaffManager({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="staff@dpsandco.in"
-                className="h-10 w-full rounded-xl border border-[var(--color-border-hair)] bg-[var(--color-surface-3)] px-3.5 text-[13px] outline-none transition-all placeholder:text-ink-3 focus:border-[var(--color-accent-blue)] focus:ring-4 focus:ring-[rgba(0,113,227,0.12)]"
+                className="h-10 w-full rounded-xl border border-[var(--color-border-hair)] bg-[var(--color-surface-3)] px-3.5 text-[14px] outline-none transition-all placeholder:text-ink-3 focus:border-[var(--color-accent-blue)] focus:ring-4 focus:ring-[rgba(0,113,227,0.12)]"
               />
             </div>
             <div className="space-y-1.5">
@@ -119,7 +119,7 @@ export function StaffManager({
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Min 8 chars"
-                className="h-10 w-full rounded-xl border border-[var(--color-border-hair)] bg-[var(--color-surface-3)] px-3.5 text-[13px] outline-none transition-all placeholder:text-ink-3 focus:border-[var(--color-accent-blue)] focus:ring-4 focus:ring-[rgba(0,113,227,0.12)]"
+                className="h-10 w-full rounded-xl border border-[var(--color-border-hair)] bg-[var(--color-surface-3)] px-3.5 text-[14px] outline-none transition-all placeholder:text-ink-3 focus:border-[var(--color-accent-blue)] focus:ring-4 focus:ring-[rgba(0,113,227,0.12)]"
               />
             </div>
             <div className="space-y-1.5">
@@ -158,7 +158,7 @@ export function StaffManager({
         </div>
       )}
 
-      <table className="w-full border-t border-subtle text-[14px]">
+      <table className="w-full border-t border-subtle text-[15px]">
         <thead>
           <tr className="text-[11px] uppercase tracking-[0.08em] text-ink-3">
             <th className="px-8 py-3 text-left font-medium">Name</th>

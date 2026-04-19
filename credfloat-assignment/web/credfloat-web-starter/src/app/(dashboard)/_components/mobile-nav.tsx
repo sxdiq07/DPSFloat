@@ -43,7 +43,7 @@ export function MobileNav() {
                 key={link.href}
                 href={link.href}
                 onClick={() => setOpen(false)}
-                className={`flex items-center gap-3 rounded-xl px-4 py-3 text-[14px] font-medium transition-colors ${
+                className={`flex items-center gap-3 rounded-xl px-4 py-3 text-[15px] font-medium transition-colors ${
                   active
                     ? "bg-[var(--color-surface-2)] text-ink"
                     : "text-ink-2 hover:bg-[var(--color-surface-2)]/60 hover:text-ink"

@@ -77,7 +77,7 @@ export default async function ClientDetailPage({
         action={
           <Link
             href={`/clients/${client.id}/reminders`}
-            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-3)] px-4 py-2 text-[13px] font-medium text-ink-2 transition-all hover:border-[var(--color-border-hair)] hover:text-ink"
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-3)] px-4 py-2 text-[14px] font-medium text-ink-2 transition-all hover:border-[var(--color-border-hair)] hover:text-ink"
           >
             <Settings2 className="h-3.5 w-3.5" />
             Reminder settings
@@ -120,7 +120,7 @@ export default async function ClientDetailPage({
               <h2 className="mt-2 text-[22px] font-semibold tracking-tight text-ink">
                 Reachability by channel
               </h2>
-              <p className="mt-1 text-[13px] text-ink-3">
+              <p className="mt-1 text-[14px] text-ink-3">
                 Counts of debtors with each contact channel populated from Tally.
               </p>
             </div>
@@ -202,7 +202,7 @@ export default async function ClientDetailPage({
                 body="Every synced ledger has a zero or credit balance."
               />
             ) : (
-              <table className="w-full text-[14px]">
+              <table className="w-full text-[15px]">
                 <thead>
                   <tr className="text-[11px] uppercase tracking-[0.08em] text-ink-3">
                     <th className="px-8 py-4 text-left font-medium">Name</th>
@@ -250,7 +250,7 @@ export default async function ClientDetailPage({
                 body="Bill-wise invoice sync requires Tally XML HTTP (Phase 2)."
               />
             ) : (
-              <table className="w-full text-[14px]">
+              <table className="w-full text-[15px]">
                 <thead>
                   <tr className="text-[11px] uppercase tracking-[0.08em] text-ink-3">
                     <th className="px-8 py-4 text-left font-medium">Bill ref</th>
@@ -311,7 +311,7 @@ export default async function ClientDetailPage({
                 body="Reminders will appear here once the cron fires for a trigger day."
               />
             ) : (
-              <table className="w-full text-[14px]">
+              <table className="w-full text-[15px]">
                 <thead>
                   <tr className="text-[11px] uppercase tracking-[0.08em] text-ink-3">
                     <th className="px-8 py-4 text-left font-medium">Sent</th>
@@ -361,8 +361,8 @@ export default async function ClientDetailPage({
 function EmptyRow({ title, body }: { title: string; body: string }) {
   return (
     <div className="px-10 py-16 text-center">
-      <p className="text-[15px] font-medium text-ink">{title}</p>
-      <p className="mx-auto mt-1.5 max-w-md text-[13px] text-ink-3">{body}</p>
+      <p className="text-[16px] font-medium text-ink">{title}</p>
+      <p className="mx-auto mt-1.5 max-w-md text-[14px] text-ink-3">{body}</p>
     </div>
   );
 }
@@ -388,7 +388,7 @@ function ChannelBar({
           <span className="text-ink-3">{icon}</span>
           {label}
         </div>
-        <div className="tabular text-[13px] font-semibold text-ink">
+        <div className="tabular text-[14px] font-semibold text-ink">
           {count}
           <span className="ml-1 text-ink-3">/ {total}</span>
         </div>

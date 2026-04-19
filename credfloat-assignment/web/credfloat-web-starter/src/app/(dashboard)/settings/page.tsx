@@ -43,7 +43,7 @@ export default async function SettingsPage() {
             <dt className="text-[12px] font-medium uppercase tracking-[0.08em] text-ink-3">
               Name
             </dt>
-            <dd className="mt-1.5 text-[15px] font-medium text-ink">
+            <dd className="mt-1.5 text-[16px] font-medium text-ink">
               {firm?.name}
             </dd>
           </div>

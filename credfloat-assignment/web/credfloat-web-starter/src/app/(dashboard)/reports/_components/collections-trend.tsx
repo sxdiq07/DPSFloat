@@ -23,7 +23,7 @@ export function CollectionsTrend({ data }: { data: TrendPoint[] }) {
   const hasData = data.some((d) => d.total > 0);
   if (!hasData) {
     return (
-      <div className="flex h-[260px] items-center justify-center text-[13px] text-ink-3">
+      <div className="flex h-[260px] items-center justify-center text-[14px] text-ink-3">
         No receipts recorded yet. Once receipts sync, this trends 12 months.
       </div>
     );

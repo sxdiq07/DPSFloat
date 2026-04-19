@@ -24,7 +24,7 @@ export default function GlobalError({
         <h1 className="mt-3 text-[34px] font-semibold leading-tight tracking-tightest text-ink">
           We hit an unexpected error.
         </h1>
-        <p className="mt-3 text-[14px] text-ink-3">
+        <p className="mt-3 text-[15px] text-ink-3">
           The team has been notified. You can retry, or head back to the
           overview.
         </p>

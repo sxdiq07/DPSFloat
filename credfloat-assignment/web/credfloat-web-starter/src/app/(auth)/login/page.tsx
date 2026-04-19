@@ -76,7 +76,7 @@ export default function LoginPage() {
               <div className="space-y-2">
                 <Label
                   htmlFor="email"
-                  className="text-[13px] font-medium text-ink-2"
+                  className="text-[14px] font-medium text-ink-2"
                 >
                   Email
                 </Label>
@@ -87,7 +87,7 @@ export default function LoginPage() {
                   required
                   autoComplete="email"
                   placeholder="you@dpsandco.in"
-                  className="h-12 w-full rounded-xl border border-[var(--color-border-hair)] bg-[var(--color-surface-3)] px-4 text-[15px] text-ink outline-none transition-all duration-150 placeholder:text-ink-3 focus:border-[var(--color-accent-blue)] focus:ring-4 focus:ring-[rgba(0,113,227,0.12)]"
+                  className="h-12 w-full rounded-xl border border-[var(--color-border-hair)] bg-[var(--color-surface-3)] px-4 text-[16px] text-ink outline-none transition-all duration-150 placeholder:text-ink-3 focus:border-[var(--color-accent-blue)] focus:ring-4 focus:ring-[rgba(0,113,227,0.12)]"
                 />
               </div>
 
@@ -95,7 +95,7 @@ export default function LoginPage() {
                 <div className="flex items-center justify-between">
                   <Label
                     htmlFor="password"
-                    className="text-[13px] font-medium text-ink-2"
+                    className="text-[14px] font-medium text-ink-2"
                   >
                     Password
                   </Label>
@@ -114,13 +114,13 @@ export default function LoginPage() {
                   required
                   autoComplete="current-password"
                   placeholder="••••••••"
-                  className="h-12 w-full rounded-xl border border-[var(--color-border-hair)] bg-[var(--color-surface-3)] px-4 text-[15px] text-ink outline-none transition-all duration-150 placeholder:text-ink-3 focus:border-[var(--color-accent-blue)] focus:ring-4 focus:ring-[rgba(0,113,227,0.12)]"
+                  className="h-12 w-full rounded-xl border border-[var(--color-border-hair)] bg-[var(--color-surface-3)] px-4 text-[16px] text-ink outline-none transition-all duration-150 placeholder:text-ink-3 focus:border-[var(--color-accent-blue)] focus:ring-4 focus:ring-[rgba(0,113,227,0.12)]"
                 />
               </div>
 
               {state?.error && (
                 <div
-                  className="rounded-xl border px-4 py-3 text-[13px]"
+                  className="rounded-xl border px-4 py-3 text-[14px]"
                   style={{
                     borderColor: "rgba(255,59,48,0.25)",
                     background: "rgba(255,59,48,0.06)",
@@ -134,7 +134,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={pending}
-                className="group relative flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[15px] font-medium text-white transition-all duration-200 disabled:pointer-events-none disabled:opacity-50"
+                className="group relative flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[16px] font-medium text-white transition-all duration-200 disabled:pointer-events-none disabled:opacity-50"
                 style={{
                   background:
                     "linear-gradient(180deg, #0a84ff 0%, #0071e3 100%)",
@@ -275,7 +275,7 @@ function FeatureCard({
         {icon}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="text-[14px] font-semibold tracking-tight text-ink">
+        <div className="text-[15px] font-semibold tracking-tight text-ink">
           {title}
         </div>
         <div className="mt-1 text-[12.5px] leading-relaxed text-ink-3">
@@ -289,7 +289,7 @@ function FeatureCard({
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="tabular text-[14px] font-semibold text-ink">{value}</div>
+      <div className="tabular text-[15px] font-semibold text-ink">{value}</div>
       <div className="text-[10.5px] uppercase tracking-[0.14em] text-ink-3">
         {label}
       </div>

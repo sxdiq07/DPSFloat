@@ -10,7 +10,7 @@ export default function NotFound() {
         <h1 className="mt-3 text-[34px] font-semibold leading-tight tracking-tightest text-ink">
           We couldn&apos;t find that page.
         </h1>
-        <p className="mt-3 text-[14px] text-ink-3">
+        <p className="mt-3 text-[15px] text-ink-3">
           The URL may be mistyped, or a client you&apos;re looking for has been
           archived.
         </p>

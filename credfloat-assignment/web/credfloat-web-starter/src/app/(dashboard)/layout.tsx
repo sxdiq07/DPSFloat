@@ -38,7 +38,7 @@ export default async function DashboardLayout({
           <MobileNav />
           <Link
             href="/"
-            className="flex items-center gap-2.5 text-[15px] font-semibold tracking-tight text-ink"
+            className="flex items-center gap-2.5 text-[16px] font-semibold tracking-tight text-ink"
           >
             <span
               className="inline-flex h-6 w-6 items-center justify-center rounded-lg"
@@ -75,7 +75,7 @@ export default async function DashboardLayout({
             <ThemeToggle />
 
             <div className="ml-2 hidden text-right sm:block">
-              <div className="text-[13px] font-medium leading-tight text-ink">
+              <div className="text-[14px] font-medium leading-tight text-ink">
                 {session.user.name ?? session.user.email}
               </div>
               <div className="text-[10.5px] uppercase tracking-[0.12em] text-ink-3">

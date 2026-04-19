@@ -49,7 +49,7 @@ export function PageHeader({
             {title}
           </h1>
           {subtitle && (
-            <p className="max-w-2xl pt-1 text-[15px] leading-relaxed text-ink-3">
+            <p className="max-w-2xl pt-1 text-[16px] leading-relaxed text-ink-3">
               {subtitle}
             </p>
           )}

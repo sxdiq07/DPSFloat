@@ -130,7 +130,7 @@ export default async function ReportsPage() {
               <h2 className="mt-2 text-[22px] font-semibold tracking-tight text-ink">
                 12-month receipts trend
               </h2>
-              <p className="mt-1 text-[13px] text-ink-3">
+              <p className="mt-1 text-[14px] text-ink-3">
                 Sum of receipts per calendar month (IST).
               </p>
             </div>
@@ -147,7 +147,7 @@ export default async function ReportsPage() {
             <h2 className="mt-2 text-[22px] font-semibold tracking-tight text-ink">
               Outstanding by bucket
             </h2>
-            <p className="mt-1 text-[13px] text-ink-3">
+            <p className="mt-1 text-[14px] text-ink-3">
               Share of open book in each age window.
             </p>
           </div>
@@ -159,7 +159,7 @@ export default async function ReportsPage() {
               return (
                 <div
                   key={s.key}
-                  className="flex items-center justify-between text-[13px]"
+                  className="flex items-center justify-between text-[14px]"
                 >
                   <div className="flex items-center gap-2">
                     <span
@@ -193,7 +193,7 @@ export default async function ReportsPage() {
           <h2 className="mt-2 text-[22px] font-semibold tracking-tight text-ink">
             Contact reachability by client
           </h2>
-          <p className="mt-1 max-w-2xl text-[13px] text-ink-3">
+          <p className="mt-1 max-w-2xl text-[14px] text-ink-3">
             Percentage of each client&apos;s debtor ledgers that have at least
             one digital contact (email, WhatsApp, or phone) on file. The
             unreachable ones need physical mail — or back-office enrichment in
@@ -203,8 +203,8 @@ export default async function ReportsPage() {
 
         {reachabilityRows.length === 0 ? (
           <div className="border-t border-subtle px-8 py-16 text-center">
-            <p className="text-[15px] text-ink-2">No client data yet.</p>
-            <p className="mt-1 text-[13px] text-ink-3">
+            <p className="text-[16px] text-ink-2">No client data yet.</p>
+            <p className="mt-1 text-[14px] text-ink-3">
               Once the connector syncs, this ranks every client by their
               debtor-count.
             </p>
@@ -224,7 +224,7 @@ export default async function ReportsPage() {
                   className={`grid grid-cols-[1fr_auto] gap-5 px-8 py-4 ${i > 0 ? "border-t border-subtle" : ""}`}
                 >
                   <div className="space-y-2">
-                    <div className="text-[14px] font-medium text-ink">
+                    <div className="text-[15px] font-medium text-ink">
                       {r.name}
                     </div>
                     <div className="h-1.5 overflow-hidden rounded-full bg-[var(--color-surface-2)]">
@@ -236,7 +236,7 @@ export default async function ReportsPage() {
                   </div>
                   <div className="text-right">
                     <div
-                      className="tabular text-[14px] font-semibold"
+                      className="tabular text-[15px] font-semibold"
                       style={{ color: tone.label }}
                     >
                       {r.pct.toFixed(1)}%

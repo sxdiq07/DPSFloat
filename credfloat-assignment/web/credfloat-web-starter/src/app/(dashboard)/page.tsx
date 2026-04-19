@@ -206,7 +206,7 @@ export default async function OverviewPage() {
               duration={1100}
                 />
           </div>
-          <p className="mt-5 text-[14px] text-ink-3">
+          <p className="mt-5 text-[15px] text-ink-3">
             Updated live from every {clientCount > 0 ? "managed" : "synced"} client.
           </p>
         </div>
@@ -261,7 +261,7 @@ export default async function OverviewPage() {
             <h2 className="mt-2 text-[26px] font-semibold tracking-tight text-ink">
               Outstanding by days overdue
             </h2>
-            <p className="mt-1.5 max-w-xl text-[14px] leading-relaxed text-ink-3">
+            <p className="mt-1.5 max-w-xl text-[15px] leading-relaxed text-ink-3">
               Single glance at how much of the book sits in each bucket. Hover
               any segment to isolate it.
             </p>
@@ -280,13 +280,13 @@ export default async function OverviewPage() {
             <h2 className="mt-2 text-[26px] font-semibold tracking-tight text-ink">
               Where the book is concentrated
             </h2>
-            <p className="mt-1.5 text-[14px] text-ink-3">
+            <p className="mt-1.5 text-[15px] text-ink-3">
               Ranked in SQL by total outstanding · refreshes on every load.
             </p>
           </div>
           <Link
             href="/clients"
-            className="inline-flex items-center gap-1 text-[13px] font-medium text-[var(--color-accent-blue)] transition-colors hover:text-[var(--color-accent-blue-hover)]"
+            className="inline-flex items-center gap-1 text-[14px] font-medium text-[var(--color-accent-blue)] transition-colors hover:text-[var(--color-accent-blue-hover)]"
           >
             All clients
             <ArrowUpRight className="h-3.5 w-3.5" />
@@ -295,8 +295,8 @@ export default async function OverviewPage() {
 
         {topClientsRanked.length === 0 ? (
           <div className="border-t border-subtle px-10 py-16 text-center">
-            <p className="text-[15px] text-ink-2">No client data yet.</p>
-            <p className="mt-1 text-[13px] text-ink-3">
+            <p className="text-[16px] text-ink-2">No client data yet.</p>
+            <p className="mt-1 text-[14px] text-ink-3">
               Run the Tally connector to sync data.
             </p>
           </div>
@@ -325,7 +325,7 @@ export default async function OverviewPage() {
 
                   {/* Initials avatar */}
                   <div
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[13px] font-semibold text-white"
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[14px] font-semibold text-white"
                     style={{
                       background: `linear-gradient(135deg, hsl(${(i * 47) % 360} 70% 55%), hsl(${(i * 47 + 30) % 360} 80% 45%))`,
                     }}
@@ -337,10 +337,10 @@ export default async function OverviewPage() {
                   {/* Name + debtor count + bar */}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-4">
-                      <div className="truncate text-[15px] font-medium text-ink group-hover:text-[var(--color-accent-blue)]">
+                      <div className="truncate text-[16px] font-medium text-ink group-hover:text-[var(--color-accent-blue)]">
                         {c.name}
                       </div>
-                      <div className="tabular shrink-0 text-[15px] font-semibold text-ink">
+                      <div className="tabular shrink-0 text-[16px] font-semibold text-ink">
                         {formatINR(c.outstanding)}
                       </div>
                     </div>
