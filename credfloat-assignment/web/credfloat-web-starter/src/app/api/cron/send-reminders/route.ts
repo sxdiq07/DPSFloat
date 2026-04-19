@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { daysOverdue, getISTToday } from "@/lib/ageing";
 import { sendReminderEmail, selectTemplate } from "@/lib/email";
 import { sendWhatsAppReminder } from "@/lib/whatsapp";
+import { isIndianHoliday, todayISTString } from "@/lib/holidays";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -11,6 +12,17 @@ export async function GET(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Don't dispatch reminders on major Indian holidays — reads as tone-deaf.
+  if (isIndianHoliday()) {
+    return NextResponse.json({
+      sent: 0,
+      failed: 0,
+      skipped: "holiday",
+      istDate: todayISTString(),
+      timestamp: new Date().toISOString(),
+    });
   }
 
   const today = getISTToday();

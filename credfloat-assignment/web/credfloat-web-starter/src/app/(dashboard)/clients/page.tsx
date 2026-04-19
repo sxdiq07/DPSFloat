@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { requireFirmId } from "@/lib/session";
+import { requireAuth, requireFirmId } from "@/lib/session";
 import { formatINR } from "@/lib/currency";
 import { formatDistanceToNow } from "date-fns";
 import { PageHeader } from "@/components/ui/page-header";
@@ -12,8 +12,16 @@ export default async function ClientsPage({
 }: {
   searchParams: Promise<{ q?: string; status?: string }>;
 }) {
+  const session = await requireAuth();
   const firmId = await requireFirmId();
   const { q, status } = await searchParams;
+
+  const savedViews = await prisma.savedView.findMany({
+    where: { ownerId: session.user.id, path: "/clients" },
+    orderBy: { createdAt: "desc" },
+    take: 30,
+    select: { id: true, name: true, params: true },
+  });
 
   // Single companies query (scoped by firm + filters). Invoice aggregates
   // are computed in SQL per-client, not by hydrating every invoice in JS.
@@ -99,7 +107,12 @@ export default async function ClientsPage({
         }
       />
 
-      <ClientsTable rows={rows} initialQuery={q ?? ""} initialStatus={status ?? "all"} />
+      <ClientsTable
+        rows={rows}
+        initialQuery={q ?? ""}
+        initialStatus={status ?? "all"}
+        savedViews={savedViews}
+      />
     </div>
   );
 }

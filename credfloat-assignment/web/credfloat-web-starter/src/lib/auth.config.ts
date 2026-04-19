@@ -29,11 +29,12 @@ export const authConfig = {
       const isLoggedIn = !!auth?.user;
       const { pathname } = nextUrl;
 
-      // Public routes (API endpoints with their own auth)
+      // Public routes (API endpoints with their own auth + token-gated portal)
       if (
         pathname.startsWith("/api/sync") ||
         pathname.startsWith("/api/cron") ||
-        pathname.startsWith("/api/auth")
+        pathname.startsWith("/api/auth") ||
+        pathname.startsWith("/portal/")
       ) {
         return true;
       }

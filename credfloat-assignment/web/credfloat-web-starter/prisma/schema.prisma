@@ -49,6 +49,11 @@ model FirmStaff {
   role         Role     @default(STAFF)
   createdAt    DateTime @default(now())
 
+  notes          Note[]
+  promisesLogged PromiseToPay[]
+  savedViews     SavedView[]
+  portalTokens   PortalToken[]
+
   @@index([firmId])
 }
 
@@ -72,6 +77,8 @@ model ClientCompany {
   invoices       Invoice[]
   receipts       Receipt[]
   reminderRules  ReminderRule[]
+  notes          Note[]
+  portalTokens   PortalToken[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -114,6 +121,8 @@ model Party {
   invoices        Invoice[]
   receipts        Receipt[]
   remindersSent   ReminderSent[]
+  notes           Note[]
+  promises        PromiseToPay[]
 
   lastSyncedAt    DateTime
   createdAt       DateTime       @default(now())
@@ -252,4 +261,83 @@ enum SendStatus {
   READ
   FAILED
   BOUNCED
+}
+
+// -------------------------------------------------------------------
+// Note — partner/staff free-text notes on clients or debtors
+// -------------------------------------------------------------------
+model Note {
+  id              String         @id @default(cuid())
+  clientCompany   ClientCompany  @relation(fields: [clientCompanyId], references: [id], onDelete: Cascade)
+  clientCompanyId String
+  party           Party?         @relation(fields: [partyId], references: [id], onDelete: Cascade)
+  partyId         String?
+  author          FirmStaff      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  authorId        String
+  body            String
+  createdAt       DateTime       @default(now())
+
+  @@index([clientCompanyId])
+  @@index([partyId])
+  @@index([createdAt])
+}
+
+// -------------------------------------------------------------------
+// PromiseToPay — debtor said "I'll pay X by Y"; tracks kept/broken
+// -------------------------------------------------------------------
+model PromiseToPay {
+  id          String         @id @default(cuid())
+  party       Party          @relation(fields: [partyId], references: [id], onDelete: Cascade)
+  partyId     String
+  amount      Decimal        @db.Decimal(15, 2)
+  promisedBy  DateTime
+  recorder    FirmStaff      @relation(fields: [recordedBy], references: [id], onDelete: Cascade)
+  recordedBy  String
+  recordedAt  DateTime       @default(now())
+  status      PromiseStatus  @default(OPEN)
+  notes       String?
+
+  @@index([partyId])
+  @@index([status])
+  @@index([promisedBy])
+}
+
+enum PromiseStatus {
+  OPEN
+  KEPT
+  BROKEN
+}
+
+// -------------------------------------------------------------------
+// SavedView — named filter URL partners pin to their sidebar
+// -------------------------------------------------------------------
+model SavedView {
+  id        String   @id @default(cuid())
+  owner     FirmStaff @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId   String
+  name      String
+  path      String
+  params    String
+  createdAt DateTime @default(now())
+
+  @@index([ownerId])
+}
+
+// -------------------------------------------------------------------
+// PortalToken — signed read-only magic-link for a client
+// -------------------------------------------------------------------
+model PortalToken {
+  id              String         @id @default(cuid())
+  clientCompany   ClientCompany  @relation(fields: [clientCompanyId], references: [id], onDelete: Cascade)
+  clientCompanyId String
+  token           String         @unique
+  creator         FirmStaff      @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  createdBy       String
+  createdAt       DateTime       @default(now())
+  expiresAt       DateTime?
+  revokedAt       DateTime?
+  lastUsedAt      DateTime?
+
+  @@index([clientCompanyId])
+  @@index([token])
 }

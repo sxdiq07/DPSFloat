@@ -6,10 +6,22 @@ import { Toaster } from "@/components/ui/sonner";
 export const metadata: Metadata = {
   title: "Ledger · DPS & Co",
   description: "The intelligent layer on top of your Tally ledger.",
+  manifest: "/manifest.json",
+  icons: {
+    icon: [{ url: "/icon-192.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icon-192.svg" }],
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Ledger",
+  },
 };
 
 export const viewport = {
   themeColor: "#fbfbfd",
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({

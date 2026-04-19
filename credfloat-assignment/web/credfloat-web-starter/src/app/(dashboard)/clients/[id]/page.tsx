@@ -10,6 +10,13 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatCard } from "@/components/ui/stat-card";
 import { ExportDebtorsButton } from "./_components/export-debtors-button";
+import { NotesTimeline, type TimelineEvent } from "./_components/notes-timeline";
+import { PromisesPanel, type PromiseRow } from "./_components/promises-panel";
+import {
+  PortalLinkPanel,
+  type PortalTokenRow,
+} from "./_components/portal-link-panel";
+import { formatDistanceToNow } from "date-fns";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +31,12 @@ export default async function ClientDetailPage({
   const client = await prisma.clientCompany.findFirst({
     where: { id, firmId },
     include: {
-      parties: { orderBy: { closingBalance: "desc" } },
+      parties: {
+        orderBy: { closingBalance: "desc" },
+        include: {
+          promises: { select: { status: true } },
+        },
+      },
       invoices: {
         where: { status: "OPEN" },
         include: { party: true },
@@ -35,10 +47,51 @@ export default async function ClientDetailPage({
         orderBy: { sentAt: "desc" },
         take: 100,
       },
+      notes: {
+        orderBy: { createdAt: "desc" },
+        take: 100,
+        include: { author: { select: { id: true, name: true } } },
+      },
     },
   });
 
   if (!client) notFound();
+
+  const session = await (await import("@/lib/auth")).auth();
+  const currentUserId = session?.user?.id ?? null;
+
+  // Active portal token (at most one per client by convention)
+  const activeToken = await prisma.portalToken.findFirst({
+    where: {
+      clientCompanyId: client.id,
+      revokedAt: null,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  const base =
+    process.env.NEXTAUTH_URL ??
+    (typeof window === "undefined" ? "http://localhost:3000" : "");
+  const activePortal: PortalTokenRow | null = activeToken
+    ? {
+        id: activeToken.id,
+        token: activeToken.token,
+        url: `${base}/portal/${activeToken.token}`,
+        createdAt: activeToken.createdAt.toISOString(),
+        expiresAt: activeToken.expiresAt?.toISOString() ?? null,
+        lastUsedAt: activeToken.lastUsedAt?.toISOString() ?? null,
+      }
+    : null;
+
+  // Promises across all debtors of this client
+  const allPromises = await prisma.promiseToPay.findMany({
+    where: { party: { clientCompanyId: client.id } },
+    orderBy: [{ status: "asc" }, { promisedBy: "asc" }],
+    include: {
+      party: { select: { tallyLedgerName: true, mailingName: true } },
+      recorder: { select: { name: true } },
+    },
+  });
 
   const totalOutstanding = client.invoices.reduce(
     (sum, i) => sum + Number(i.outstandingAmount),
@@ -58,6 +111,77 @@ export default async function ClientDetailPage({
   const withEmail = partiesWithBalance.filter((p) => p.email).length;
   const withWhatsApp = partiesWithBalance.filter((p) => p.whatsappNumber).length;
   const withPhone = partiesWithBalance.filter((p) => p.phone).length;
+
+  // Timeline events = notes + recent reminders merged + promises
+  const timeline: TimelineEvent[] = [];
+  for (const n of client.notes) {
+    timeline.push({
+      key: `n-${n.id}`,
+      kind: "note",
+      at: n.createdAt.toISOString(),
+      title: <span className="font-medium">{n.author.name} left a note</span>,
+      body: n.body,
+      authorName: n.author.name,
+      noteId: n.id,
+      canDelete: n.author.id === currentUserId || session?.user?.role === "PARTNER",
+    });
+  }
+  for (const r of client.remindersSent.slice(0, 30)) {
+    timeline.push({
+      key: `r-${r.id}`,
+      kind: "reminder",
+      at: r.sentAt.toISOString(),
+      title: (
+        <span>
+          <span className="font-medium">
+            {r.channel.charAt(0) + r.channel.slice(1).toLowerCase()}
+          </span>{" "}
+          reminder sent to{" "}
+          <span className="font-medium">
+            {r.party.mailingName || r.party.tallyLedgerName}
+          </span>{" "}
+          for <span className="tabular">{r.invoice.billRef}</span>
+        </span>
+      ),
+      body:
+        r.status === "FAILED" ? `Failed: ${r.error ?? "unknown error"}` : undefined,
+    });
+  }
+  for (const p of allPromises) {
+    timeline.push({
+      key: `p-${p.id}`,
+      kind: "promise",
+      at: p.recordedAt.toISOString(),
+      title: (
+        <span>
+          <span className="font-medium">{p.recorder.name}</span> recorded a
+          promise from{" "}
+          <span className="font-medium">
+            {p.party.mailingName || p.party.tallyLedgerName}
+          </span>
+        </span>
+      ),
+      body: `${formatINR(Number(p.amount))} by ${formatInTimeZone(p.promisedBy, "Asia/Kolkata", "dd MMM yyyy")}${p.notes ? ` — "${p.notes}"` : ""}`,
+    });
+  }
+  timeline.sort((a, b) => (a.at < b.at ? 1 : -1));
+
+  const promiseRows: PromiseRow[] = allPromises.map((p) => ({
+    id: p.id,
+    partyName: p.party.mailingName || p.party.tallyLedgerName,
+    amount: Number(p.amount),
+    promisedBy: p.promisedBy.toISOString(),
+    status: p.status,
+    notes: p.notes,
+    recordedAt: p.recordedAt.toISOString(),
+    recorderName: p.recorder.name,
+    amountFormatted: formatINR(Number(p.amount)),
+  }));
+
+  const partiesForForm = partiesWithBalance.map((p) => ({
+    id: p.id,
+    name: p.mailingName || p.tallyLedgerName,
+  }));
 
   return (
     <div className="space-y-10">
@@ -152,6 +276,19 @@ export default async function ClientDetailPage({
       )}
 
       {/* Tabs: Debtors / Invoices / Reminders */}
+      {/* Client portal link */}
+      <PortalLinkPanel
+        clientId={client.id}
+        clientName={client.displayName}
+        active={activePortal}
+      />
+
+      {/* Promises */}
+      <PromisesPanel parties={partiesForForm} promises={promiseRows} />
+
+      {/* Activity timeline (notes + reminders + promises) */}
+      <NotesTimeline clientCompanyId={client.id} events={timeline} />
+
       <Tabs defaultValue="debtors" className="space-y-5">
         <TabsList className="bg-[var(--color-surface-2)]">
           <TabsTrigger value="debtors">
