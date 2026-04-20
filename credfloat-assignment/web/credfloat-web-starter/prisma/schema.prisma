@@ -114,6 +114,11 @@ model Party {
   // Outstanding balance from latest sync
   closingBalance  Decimal        @db.Decimal(15, 2)
 
+  // Net unallocated receipts (excess payments not yet applied to any bill).
+  // Maintained by the allocation engine on each sync; positive when the
+  // debtor has paid more than the sum of their current open bills.
+  advanceAmount   Decimal        @db.Decimal(15, 2) @default(0)
+
   // Opt-out: debtor replied STOP to any channel
   optedOut        Boolean        @default(false)
   optedOutReason  String?
@@ -153,6 +158,7 @@ model Invoice {
   ageBucket         AgeBucket      @default(CURRENT) // recomputed daily
 
   remindersSent     ReminderSent[]
+  allocations       ReceiptAllocation[]
 
   lastSyncedAt      DateTime
   createdAt         DateTime       @default(now())
@@ -193,11 +199,45 @@ model Receipt {
   receiptDate     DateTime
   amount          Decimal       @db.Decimal(15, 2)
 
+  allocations     ReceiptAllocation[]
+
   lastSyncedAt    DateTime
   createdAt       DateTime      @default(now())
 
   @@unique([clientCompanyId, voucherRef])
   @@index([partyId])
+}
+
+// -------------------------------------------------------------------
+// ReceiptAllocation — how much of each Receipt was applied to which
+// Invoice. Either sourced from Tally's BILLALLOCATIONS on the receipt
+// voucher (TALLY_BILLWISE), derived by our FIFO engine when the
+// receipt was posted on-account (FIFO_DERIVED), or manually adjusted
+// by staff (MANUAL — preserved across syncs).
+// -------------------------------------------------------------------
+model ReceiptAllocation {
+  id          String           @id @default(cuid())
+  receipt     Receipt          @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  receiptId   String
+  invoice     Invoice          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoiceId   String
+
+  amount      Decimal          @db.Decimal(15, 2)
+  source      AllocationSource
+
+  allocatedAt DateTime         @default(now())
+  createdAt   DateTime         @default(now())
+
+  @@unique([receiptId, invoiceId])
+  @@index([receiptId])
+  @@index([invoiceId])
+  @@index([source])
+}
+
+enum AllocationSource {
+  TALLY_BILLWISE  // Tally voucher had BILLALLOCATIONS with this bill ref
+  FIFO_DERIVED    // our engine applied this allocation on-account
+  MANUAL          // staff override — engine will not overwrite
 }
 
 // -------------------------------------------------------------------

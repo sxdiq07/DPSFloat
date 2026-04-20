@@ -47,11 +47,16 @@ export async function GET(req: NextRequest) {
     // For each trigger day offset, check if any invoices match today
     const triggerDays = rule.triggerDays;
 
-    // Find this client's OPEN invoices with a due date
+    // Find this client's OPEN invoices with a due date AND a non-zero
+    // outstanding. An invoice whose allocation engine zero'd it out in
+    // the last sync stays OPEN only briefly (the engine flips it to PAID)
+    // — the outstandingAmount > 0 filter is belt-and-braces so a
+    // partially-settled bill still reminds, but a fully-paid one doesn't.
     const invoices = await prisma.invoice.findMany({
       where: {
         clientCompanyId: rule.clientCompanyId,
         status: "OPEN",
+        outstandingAmount: { gt: 0 },
         dueDate: { not: null },
         party: { optedOut: false },
       },

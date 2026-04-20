@@ -33,6 +33,7 @@ import requests
 from dotenv import load_dotenv
 
 from tally_invoices import fetch_bill_wise_outstanding, InvoiceRecord
+from tally_receipts import fetch_receipts, ReceiptRecord
 
 load_dotenv()
 
@@ -43,6 +44,7 @@ API_KEY = os.getenv("CREDFLOAT_API_KEY", "")
 TALLY_HTTP_URL = os.getenv("TALLY_HTTP_URL", "http://localhost:9000")
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 SKIP_INVOICES = os.getenv("SKIP_INVOICES", "false").lower() == "true"
+SKIP_RECEIPTS = os.getenv("SKIP_RECEIPTS", "false").lower() == "true"
 
 # --- Logging ---
 logging.basicConfig(
@@ -80,6 +82,7 @@ class SyncPayload:
     companies: list = field(default_factory=list)
     parties: list = field(default_factory=list)
     invoices: list = field(default_factory=list)
+    receipts: list = field(default_factory=list)
 
 
 # --- Tally ODBC Reader ---
@@ -224,6 +227,7 @@ def main():
 
         all_parties = []
         all_invoices: list[InvoiceRecord] = []
+        all_receipts: list[ReceiptRecord] = []
         for c in companies:
             # V1: reads only from the active company. Multi-company iteration
             # requires SELECT COMPANY via Tally XML (Phase 2).
@@ -243,15 +247,26 @@ def main():
                 log.info(f"  {c.tally_name}: {len(invoices)} bill-wise entries")
                 all_invoices.extend(invoices)
 
+            # Receipt vouchers with their BILLALLOCATIONS — feeds the
+            # cloud-side FIFO/bill-wise allocation engine.
+            if not SKIP_RECEIPTS:
+                receipts = fetch_receipts(
+                    c.tally_name, tally_url=TALLY_HTTP_URL
+                )
+                log.info(f"  {c.tally_name}: {len(receipts)} receipts")
+                all_receipts.extend(receipts)
+
         payload = SyncPayload(
             synced_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             companies=[asdict(c) for c in companies],
             parties=[asdict(p) for p in all_parties],
             invoices=[asdict(i) for i in all_invoices],
+            receipts=[asdict(r) for r in all_receipts],
         )
         log.info(
             f"Prepared sync: {len(payload.companies)} companies, "
-            f"{len(payload.parties)} parties, {len(payload.invoices)} invoices."
+            f"{len(payload.parties)} parties, {len(payload.invoices)} invoices, "
+            f"{len(payload.receipts)} receipts."
         )
         push_to_api(payload)
 

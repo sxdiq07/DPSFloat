@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { allocateForParty } from "@/lib/allocation";
 
 export const runtime = "nodejs";
 
@@ -28,11 +29,27 @@ const invoiceSchema = z.object({
   outstanding_amount: z.number(),
 });
 
+const receiptSchema = z.object({
+  company: z.string().min(1),
+  tally_ledger_name: z.string().min(1),
+  voucher_ref: z.string().min(1),
+  receipt_date: z.string().min(1),
+  amount: z.number(),
+  // Tally's BILLALLOCATIONS on the receipt voucher — when Tally has
+  // already knocked the payment off specific bills, these land here so
+  // the allocation engine can honour the bill-wise source of truth.
+  bill_refs: z
+    .array(z.object({ bill_ref: z.string(), amount: z.number() }))
+    .optional()
+    .default([]),
+});
+
 const syncSchema = z.object({
   synced_at: z.string(),
   companies: z.array(z.object({ tally_name: z.string().min(1) })),
   parties: z.array(partySchema),
   invoices: z.array(invoiceSchema).optional().default([]),
+  receipts: z.array(receiptSchema).optional().default([]),
 });
 
 export async function POST(req: NextRequest) {
@@ -64,7 +81,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { synced_at, companies, parties, invoices } = parsed.data;
+  const { synced_at, companies, parties, invoices, receipts } = parsed.data;
   const syncedAt = new Date(synced_at);
 
   // Prefer the explicit SEED_FIRM_ID env var (stable across renames); fall
@@ -365,6 +382,188 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // --- Receipts (bulk upsert, same pattern as invoices) ---
+  let receiptCount = 0;
+  let receiptSkipped = 0;
+  // partyId -> receiptId -> bill-wise allocations claimed by Tally on this
+  // receipt voucher. Held in memory and passed into the allocation engine.
+  const receiptBillRefsByParty = new Map<
+    string,
+    Map<string, Array<{ billRef: string; amount: number }>>
+  >();
+
+  if (receipts.length > 0) {
+    // Re-resolve (companyId, ledgerName) -> partyId the same way as the
+    // invoice path. Reuses `companyNameToId` from earlier in the route.
+    const companyIds = [...companyNameToId.values()];
+    const existingParties = await prisma.party.findMany({
+      where: { clientCompanyId: { in: companyIds } },
+      select: { id: true, clientCompanyId: true, tallyLedgerName: true },
+    });
+    const partyKey = (cid: string, l: string) => `${cid}::${l}`;
+    const partyIdByKey = new Map(
+      existingParties.map((p) => [partyKey(p.clientCompanyId, p.tallyLedgerName), p.id]),
+    );
+
+    type ReceiptRow = {
+      id: string;
+      clientCompanyId: string;
+      partyId: string;
+      voucherRef: string;
+      receiptDate: Date;
+      amount: number;
+    };
+    const receiptRows: ReceiptRow[] = [];
+
+    for (const rec of receipts) {
+      const companyId = companyNameToId.get(rec.company);
+      if (!companyId) {
+        receiptSkipped++;
+        continue;
+      }
+      const partyId = partyIdByKey.get(
+        partyKey(companyId, rec.tally_ledger_name),
+      );
+      if (!partyId) {
+        receiptSkipped++;
+        continue;
+      }
+      const id = randomUUID();
+      receiptRows.push({
+        id,
+        clientCompanyId: companyId,
+        partyId,
+        voucherRef: rec.voucher_ref,
+        receiptDate: new Date(rec.receipt_date),
+        amount: rec.amount,
+      });
+      receiptCount++;
+    }
+
+    for (let i = 0; i < receiptRows.length; i += CHUNK) {
+      const chunk = receiptRows.slice(i, i + CHUNK);
+      const values = chunk.map(
+        (r) => Prisma.sql`(
+          ${r.id},
+          ${r.clientCompanyId},
+          ${r.partyId},
+          ${r.voucherRef},
+          ${r.receiptDate},
+          ${r.amount},
+          ${syncedAt},
+          NOW()
+        )`,
+      );
+      await prisma.$executeRaw`
+        INSERT INTO "Receipt" (
+          "id",
+          "clientCompanyId",
+          "partyId",
+          "voucherRef",
+          "receiptDate",
+          "amount",
+          "lastSyncedAt",
+          "createdAt"
+        )
+        VALUES ${Prisma.join(values, ",")}
+        ON CONFLICT ("clientCompanyId", "voucherRef") DO UPDATE SET
+          "receiptDate" = EXCLUDED."receiptDate",
+          "amount" = EXCLUDED."amount",
+          "lastSyncedAt" = EXCLUDED."lastSyncedAt"
+      `;
+    }
+
+    // Resolve upserted receipt ids (by unique voucherRef) so we can key
+    // bill-refs for the allocation engine.
+    const voucherRefs = receiptRows.map((r) => r.voucherRef);
+    const storedReceipts = await prisma.receipt.findMany({
+      where: {
+        clientCompanyId: { in: companyIds },
+        voucherRef: { in: voucherRefs },
+      },
+      select: { id: true, partyId: true, clientCompanyId: true, voucherRef: true },
+    });
+    const receiptIdByKey = new Map(
+      storedReceipts.map((r) => [`${r.clientCompanyId}::${r.voucherRef}`, r.id]),
+    );
+
+    for (const rec of receipts) {
+      const companyId = companyNameToId.get(rec.company);
+      if (!companyId) continue;
+      const partyId = partyIdByKey.get(
+        partyKey(companyId, rec.tally_ledger_name),
+      );
+      if (!partyId) continue;
+      const receiptId = receiptIdByKey.get(`${companyId}::${rec.voucher_ref}`);
+      if (!receiptId) continue;
+      if (!rec.bill_refs || rec.bill_refs.length === 0) continue;
+      const perParty =
+        receiptBillRefsByParty.get(partyId) ??
+        new Map<string, Array<{ billRef: string; amount: number }>>();
+      perParty.set(
+        receiptId,
+        rec.bill_refs.map((b) => ({ billRef: b.bill_ref, amount: b.amount })),
+      );
+      receiptBillRefsByParty.set(partyId, perParty);
+    }
+  }
+
+  // --- Allocation engine ---
+  // Run per party that had either invoices or receipts in this sync. A
+  // party with no receipts doesn't need a pass (outstandingAmount stays
+  // at originalAmount), but a party that had invoices upserted with a
+  // changed originalAmount does, so we include both.
+  const dirtyPartyIds = new Set<string>();
+  if (invoices.length > 0 || receipts.length > 0) {
+    const companyIds = [...companyNameToId.values()];
+    const touchedLedgers = new Set<string>();
+    for (const inv of invoices) touchedLedgers.add(`${inv.company}::${inv.tally_ledger_name}`);
+    for (const rec of receipts) touchedLedgers.add(`${rec.company}::${rec.tally_ledger_name}`);
+    const partiesTouched = await prisma.party.findMany({
+      where: { clientCompanyId: { in: companyIds } },
+      select: { id: true, clientCompanyId: true, tallyLedgerName: true },
+    });
+    const companyIdToName = new Map(
+      [...companyNameToId.entries()].map(([n, id]) => [id, n]),
+    );
+    for (const p of partiesTouched) {
+      const cname = companyIdToName.get(p.clientCompanyId);
+      if (!cname) continue;
+      if (touchedLedgers.has(`${cname}::${p.tallyLedgerName}`)) {
+        dirtyPartyIds.add(p.id);
+      }
+    }
+  }
+
+  let allocInvoicesTouched = 0;
+  let allocAdvanceTotal = 0;
+  for (const partyId of dirtyPartyIds) {
+    const [partyInvoices, partyReceipts] = await Promise.all([
+      prisma.invoice.findMany({
+        where: { partyId },
+        select: { id: true, billRef: true, billDate: true, originalAmount: true },
+        orderBy: { billDate: "asc" },
+      }),
+      prisma.receipt.findMany({
+        where: { partyId },
+        select: { id: true, amount: true, receiptDate: true },
+        orderBy: { receiptDate: "asc" },
+      }),
+    ]);
+    const billRefMap = receiptBillRefsByParty.get(partyId);
+    const receiptsWithRefs = partyReceipts.map((r) => ({
+      id: r.id,
+      amount: Number(r.amount),
+      receiptDate: r.receiptDate,
+      billRefs: billRefMap?.get(r.id),
+    }));
+    const summary = await prisma.$transaction(async (tx) =>
+      allocateForParty(tx, partyId, partyInvoices, receiptsWithRefs),
+    );
+    allocInvoicesTouched += summary.invoicesTouched;
+    allocAdvanceTotal += summary.advanceLeft;
+  }
+
   const durationMs = Date.now() - startedAt;
 
   return NextResponse.json({
@@ -372,7 +571,13 @@ export async function POST(req: NextRequest) {
       companies: companies.length,
       parties: partyCount,
       invoices: invoiceCount,
-      skipped: skipped + invoiceSkipped,
+      receipts: receiptCount,
+      skipped: skipped + invoiceSkipped + receiptSkipped,
+      allocation: {
+        partiesProcessed: dirtyPartyIds.size,
+        invoicesUpdated: allocInvoicesTouched,
+        advanceTotal: Math.round(allocAdvanceTotal * 100) / 100,
+      },
     },
     durationMs,
     timestamp: new Date().toISOString(),

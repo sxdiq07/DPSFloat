@@ -402,7 +402,14 @@ export default async function ClientDetailPage({
                           <ReliabilityPill score={score} />
                         </td>
                         <td className="tabular px-8 py-4 text-right font-medium text-ink">
-                          {formatINR(Number(p.closingBalance))}
+                          <div className="flex flex-col items-end">
+                            <span>{formatINR(Number(p.closingBalance))}</span>
+                            {Number(p.advanceAmount) > 0 && (
+                              <span className="mt-0.5 text-[10.5px] font-medium text-emerald-700">
+                                advance {formatINR(Number(p.advanceAmount))}
+                              </span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -462,7 +469,20 @@ export default async function ClientDetailPage({
                           : "—"}
                       </td>
                       <td className="tabular px-8 py-4 text-right font-medium text-ink">
-                        {formatINR(Number(inv.outstandingAmount))}
+                        <div className="flex flex-col items-end">
+                          <span>{formatINR(Number(inv.outstandingAmount))}</span>
+                          {Number(inv.outstandingAmount) <
+                            Number(inv.originalAmount) && (
+                            <span className="mt-0.5 text-[10.5px] text-ink-3">
+                              paid{" "}
+                              {formatINR(
+                                Number(inv.originalAmount) -
+                                  Number(inv.outstandingAmount),
+                              )}{" "}
+                              of {formatINR(Number(inv.originalAmount))}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-8 py-4">
                         <AgePill bucket={inv.ageBucket} />
