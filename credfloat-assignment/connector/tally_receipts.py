@@ -38,10 +38,11 @@ Rules applied:
 """
 
 import logging
+import os
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 import requests
@@ -76,15 +77,16 @@ RECEIPTS_TDL = """<ENVELOPE>
     <DESC>
       <STATICVARIABLES>
         <SVCURRENTCOMPANY>{company}</SVCURRENTCOMPANY>
+        <SVFROMDATE TYPE="Date">{from_date}</SVFROMDATE>
+        <SVTODATE TYPE="Date">{to_date}</SVTODATE>
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
           <COLLECTION NAME="CredFloatReceiptVouchers" ISMODIFY="No">
-            <TYPE>Voucher</TYPE>
-            <FILTERS>CredFloatIsReceipt</FILTERS>
+            <TYPE>Vouchers : VoucherTypeName</TYPE>
+            <CHILDOF>Receipt</CHILDOF>
             <FETCH>Date, VoucherNumber, PartyLedgerName, Amount, AllLedgerEntries</FETCH>
           </COLLECTION>
-          <SYSTEM TYPE="Formulae" NAME="CredFloatIsReceipt">$VCHTYPE = "Receipt"</SYSTEM>
         </TDLMESSAGE>
       </TDL>
     </DESC>
@@ -132,13 +134,30 @@ def fetch_receipts(
     company_name: str,
     tally_url: str = "http://localhost:9000",
     timeout: int = 120,
+    from_date: Optional[date] = None,
+    to_date: Optional[date] = None,
 ) -> list[ReceiptRecord]:
     """
     Returns one ReceiptRecord per Receipt voucher, with BILLALLOCATIONS on
     each. Silent empty list on Tally errors — caller logs counts.
+
+    Tally's `Vouchers : VoucherTypeName` collection with CHILDOF "Receipt"
+    requires a date range (SVFROMDATE/SVTODATE) — without it Tally returns
+    only today's vouchers, which for historical sync is almost never what
+    we want. Defaults to 1-Apr-2020 through today (safe over-pull).
     """
-    body = RECEIPTS_TDL.format(company=_xml_escape(company_name))
-    log.info(f"Fetching receipts (company={company_name})")
+    # Default window: wide enough to cover any realistic Tally book.
+    fd = from_date or date(2020, 4, 1)
+    td = to_date or date.today()
+    body = RECEIPTS_TDL.format(
+        company=_xml_escape(company_name),
+        from_date=fd.strftime("%d-%b-%Y"),
+        to_date=td.strftime("%d-%b-%Y"),
+    )
+    log.info(
+        f"Fetching receipts (company={company_name}, "
+        f"from={fd.isoformat()}, to={td.isoformat()})"
+    )
 
     try:
         r = requests.post(
@@ -153,6 +172,20 @@ def fetch_receipts(
         return []
 
     raw = _INVALID_XML_RE.sub(b" ", r.content)
+
+    # DEBUG hook — dump raw Tally XML to a file. Very helpful when the
+    # parse returns 0 receipts and you need to see what the TDL actually
+    # returned. Enable with TALLY_DEBUG_DUMP=true.
+    if os.getenv("TALLY_DEBUG_DUMP", "false").lower() == "true":
+        safe_name = re.sub(r"[^A-Za-z0-9_-]", "_", company_name)[:40]
+        dump_path = f"tally_receipts_debug_{safe_name}.xml"
+        try:
+            with open(dump_path, "wb") as fp:
+                fp.write(raw)
+            log.info(f"  Wrote Tally response to {dump_path}")
+        except OSError as e:
+            log.warning(f"  Failed to dump response: {e}")
+
     try:
         root = ET.fromstring(raw)
     except ET.ParseError as e:
