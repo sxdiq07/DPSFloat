@@ -104,31 +104,45 @@ export default async function OverviewPage() {
     prisma.clientCompany.count({ where: { firmId } }),
   ]);
 
-  // Cross-client duplicate detection — pull all parties in the firm with
-  // positive balance, group by normalized name.
-  const dupSource = await prisma.party.findMany({
-    where: {
-      clientCompany: { firmId },
-      closingBalance: { gt: 0 },
-    },
-    select: {
-      id: true,
-      tallyLedgerName: true,
-      mailingName: true,
-      closingBalance: true,
-      clientCompanyId: true,
-      clientCompany: { select: { displayName: true } },
-    },
-  });
+  // Cross-client duplicate detection — use each party's actual due
+  // (sum of their open invoice outstandings post-FIFO), not gross
+  // closingBalance. Parties whose ledger closing balance is positive
+  // but whose FIFO-adjusted open invoices sum to zero aren't a real
+  // exposure and shouldn't surface here.
+  const [dupSource, dupOutstandings] = await Promise.all([
+    prisma.party.findMany({
+      where: { clientCompany: { firmId } },
+      select: {
+        id: true,
+        tallyLedgerName: true,
+        mailingName: true,
+        clientCompanyId: true,
+        clientCompany: { select: { displayName: true } },
+      },
+    }),
+    prisma.invoice.groupBy({
+      by: ["partyId"],
+      where: { clientCompany: { firmId }, status: "OPEN" },
+      _sum: { outstandingAmount: true },
+    }),
+  ]);
+  const duesByPartyId = new Map<string, number>(
+    dupOutstandings.map((o) => [
+      o.partyId,
+      Number(o._sum.outstandingAmount ?? 0),
+    ]),
+  );
   const dupGroups = groupDuplicates(
-    dupSource.map<DupCandidate>((p) => ({
-      id: p.id,
-      tallyLedgerName: p.tallyLedgerName,
-      mailingName: p.mailingName,
-      closingBalance: Number(p.closingBalance),
-      clientCompanyId: p.clientCompanyId,
-      clientCompanyName: p.clientCompany.displayName,
-    })),
+    dupSource
+      .filter((p) => (duesByPartyId.get(p.id) ?? 0) > 0)
+      .map<DupCandidate>((p) => ({
+        id: p.id,
+        tallyLedgerName: p.tallyLedgerName,
+        mailingName: p.mailingName,
+        closingBalance: duesByPartyId.get(p.id) ?? 0,
+        clientCompanyId: p.clientCompanyId,
+        clientCompanyName: p.clientCompany.displayName,
+      })),
   ).slice(0, 10);
 
   // Secondary queries for the storytelling section

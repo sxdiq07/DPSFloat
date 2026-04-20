@@ -27,9 +27,13 @@ export default async function PortalPage({
       clientCompany: {
         include: {
           parties: {
-            where: { closingBalance: { gt: 0 } },
-            orderBy: { closingBalance: "desc" },
-            take: 10,
+            // Ranked in JS below by invoice-based due, not closingBalance.
+            include: {
+              invoices: {
+                where: { status: "OPEN" },
+                select: { outstandingAmount: true },
+              },
+            },
           },
           invoices: {
             where: { status: "OPEN" },
@@ -63,10 +67,18 @@ export default async function PortalPage({
     return { key: b, label: AGE_BUCKET_LABELS[b], value, color: AGEING_COLOR[b] };
   });
 
-  const maxParty = Math.max(
-    1,
-    ...client.parties.map((p) => Number(p.closingBalance)),
-  );
+  // Party-level "actual due" — sum of their open invoice outstandings,
+  // post-FIFO. Debtors whose gross ledger balance is positive but whose
+  // open bills net to zero don't appear here (advance only = no pending
+  // bill to chase).
+  const partyDue = (partyInvoices: Array<{ outstandingAmount: unknown }>) =>
+    partyInvoices.reduce((s, i) => s + Number(i.outstandingAmount), 0);
+  const rankedParties = client.parties
+    .map((p) => ({ ...p, _due: partyDue(p.invoices) }))
+    .filter((p) => p._due > 0)
+    .sort((a, b) => b._due - a._due)
+    .slice(0, 10);
+  const maxParty = Math.max(1, ...rankedParties.map((p) => p._due));
 
   return (
     <div className="min-h-screen bg-surface">
@@ -197,7 +209,7 @@ export default async function PortalPage({
               on the schedule DPS &amp; Co has configured for you.
             </p>
           </div>
-          {client.parties.length === 0 ? (
+          {rankedParties.length === 0 ? (
             <div className="border-t border-subtle px-8 py-16 text-center">
               <p className="text-[15px] font-medium text-ink">
                 No outstanding debtors
@@ -208,8 +220,8 @@ export default async function PortalPage({
             </div>
           ) : (
             <div className="border-t border-subtle">
-              {client.parties.map((p, i) => {
-                const amount = Number(p.closingBalance);
+              {rankedParties.map((p, i) => {
+                const amount = p._due;
                 const pct = (amount / maxParty) * 100;
                 const initials = (p.mailingName || p.tallyLedgerName)
                   .split(" ")

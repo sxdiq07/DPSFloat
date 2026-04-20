@@ -35,7 +35,9 @@ export default async function ClientDetailPage({
     where: { id, firmId },
     include: {
       parties: {
-        orderBy: { closingBalance: "desc" },
+        // Sorted in JS below by actual *due* (post-FIFO invoice) outstanding,
+        // not gross closingBalance — the ledger balance can include advances,
+        // credit notes, and journal adjustments unrelated to open bills.
         include: {
           promises: { select: { status: true } },
         },
@@ -103,9 +105,26 @@ export default async function ClientDetailPage({
     (sum, i) => sum + Number(i.outstandingAmount),
     0,
   );
-  const partiesWithBalance = client.parties.filter(
-    (p) => Number(p.closingBalance) > 0,
-  );
+
+  // Invoice-based "actual due" per party — sum of their open invoices'
+  // outstandingAmount post-FIFO. This is what every debtor-level number
+  // in this page uses instead of Party.closingBalance. closingBalance is
+  // kept in the model for reconciliation against Tally but it mixes in
+  // advances/credit notes/journal adjustments that aren't pending bills.
+  const invoiceOutstandingByParty = new Map<string, number>();
+  for (const inv of client.invoices) {
+    invoiceOutstandingByParty.set(
+      inv.partyId,
+      (invoiceOutstandingByParty.get(inv.partyId) ?? 0) +
+        Number(inv.outstandingAmount),
+    );
+  }
+  const partyDue = (partyId: string) =>
+    invoiceOutstandingByParty.get(partyId) ?? 0;
+
+  const partiesWithBalance = client.parties
+    .filter((p) => partyDue(p.id) > 0)
+    .sort((a, b) => partyDue(b.id) - partyDue(a.id));
   const reachable = partiesWithBalance.filter(
     (p) => p.email || p.phone || p.whatsappNumber,
   ).length;
@@ -334,7 +353,7 @@ export default async function ClientDetailPage({
                     phone: p.phone,
                     whatsapp: p.whatsappNumber,
                     address: p.address,
-                    outstanding: Number(p.closingBalance),
+                    outstanding: partyDue(p.id),
                   }))}
                 />
               </div>
@@ -403,10 +422,20 @@ export default async function ClientDetailPage({
                         </td>
                         <td className="tabular px-8 py-4 text-right font-medium text-ink">
                           <div className="flex flex-col items-end">
-                            <span>{formatINR(Number(p.closingBalance))}</span>
+                            <span>{formatINR(partyDue(p.id))}</span>
                             {Number(p.advanceAmount) > 0 && (
                               <span className="mt-0.5 text-[10.5px] font-medium text-emerald-700">
                                 advance {formatINR(Number(p.advanceAmount))}
+                              </span>
+                            )}
+                            {Math.abs(
+                              Number(p.closingBalance) - partyDue(p.id),
+                            ) > 1 && (
+                              <span
+                                className="mt-0.5 text-[10.5px] text-ink-3"
+                                title="Gross ledger balance per Tally (includes advances, credit notes, journal adjustments)"
+                              >
+                                ledger {formatINR(Number(p.closingBalance))}
                               </span>
                             )}
                           </div>
