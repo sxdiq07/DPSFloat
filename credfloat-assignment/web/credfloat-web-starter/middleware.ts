@@ -5,11 +5,9 @@ export default NextAuth(authConfig).auth;
 
 export const config = {
   matcher: [
-    // Match all request paths except for:
-    // - _next/static (static files)
-    // - _next/image (image optimization)
-    // - favicon.ico
-    // - Files with extensions (images, etc.)
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    // Skip edge middleware on routes that do their own auth (bearer token
+    // for sync/cron, token-gated portal, NextAuth's own handler) and on
+    // static assets.
+    "/((?!api/sync|api/cron|api/auth|portal/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

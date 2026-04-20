@@ -24,7 +24,7 @@ import os
 import sys
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, asdict, field
 from typing import Optional
 
@@ -244,7 +244,7 @@ def main():
                 all_invoices.extend(invoices)
 
         payload = SyncPayload(
-            synced_at=datetime.utcnow().isoformat() + "Z",
+            synced_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             companies=[asdict(c) for c in companies],
             parties=[asdict(p) for p in all_parties],
             invoices=[asdict(i) for i in all_invoices],
