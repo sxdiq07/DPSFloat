@@ -79,14 +79,16 @@ RECEIPTS_TDL = """<ENVELOPE>
         <SVCURRENTCOMPANY>{company}</SVCURRENTCOMPANY>
         <SVFROMDATE TYPE="Date">{from_date}</SVFROMDATE>
         <SVTODATE TYPE="Date">{to_date}</SVTODATE>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
           <COLLECTION NAME="CredFloatReceiptVouchers" ISMODIFY="No">
-            <TYPE>Vouchers : VoucherTypeName</TYPE>
-            <CHILDOF>Receipt</CHILDOF>
-            <FETCH>Date, VoucherNumber, PartyLedgerName, Amount, AllLedgerEntries</FETCH>
+            <TYPE>Voucher</TYPE>
+            <FETCH>Date, VoucherTypeName, VoucherNumber, PartyLedgerName, Amount, AllLedgerEntries</FETCH>
+            <FILTERS>CredFloatIsReceipt</FILTERS>
           </COLLECTION>
+          <SYSTEM TYPE="Formulae" NAME="CredFloatIsReceipt">$VoucherTypeName = "Receipt"</SYSTEM>
         </TDLMESSAGE>
       </TDL>
     </DESC>
@@ -197,6 +199,11 @@ def fetch_receipts(
     skipped_no_party = 0
 
     for voucher in root.iter("VOUCHER"):
+        # Tally wraps its response summary in a CMPINFO block that contains
+        # <VOUCHER>0</VOUCHER> as a *count*, not an actual voucher. Skip
+        # elements that have no children — real vouchers always do.
+        if len(list(voucher)) == 0:
+            continue
         date_iso = _parse_date(voucher.findtext("DATE"))
         vch_num = (voucher.findtext("VOUCHERNUMBER") or "").strip()
         party_name = (voucher.findtext("PARTYLEDGERNAME") or "").strip()
