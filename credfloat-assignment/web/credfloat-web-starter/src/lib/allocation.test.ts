@@ -22,6 +22,9 @@ function makeTx() {
   }> = [];
   const partyUpdates: Array<{ id: string; advanceAmount: number }> = [];
 
+  // The batched invoice update uses $executeRaw(Prisma.sql`...`); we
+  // can introspect the tagged-template's `values` to recover what would
+  // have been written per invoice.
   const tx = {
     receiptAllocation: {
       deleteMany: vi.fn(async (args: unknown) => {
@@ -37,21 +40,21 @@ function makeTx() {
         return { count: args.data.length };
       }),
     },
-    invoice: {
-      update: vi.fn(
-        async (args: {
-          where: { id: string };
-          data: { outstandingAmount: Prisma.Decimal; status: string };
-        }) => {
-          invoiceUpdates.push({
-            id: args.where.id,
-            outstandingAmount: Number(args.data.outstandingAmount),
-            status: args.data.status,
-          });
-          return {};
-        },
-      ),
-    },
+    $executeRaw: vi.fn(async (sql: Prisma.Sql) => {
+      // Prisma.Sql holds interpolated values in `.values` — for the
+      // batched invoice update these come in chunks of 3:
+      //   [id, outstanding, status, id, outstanding, status, ...]
+      const vals = sql.values;
+      for (let i = 0; i + 2 < vals.length; i += 3) {
+        const id = vals[i] as string;
+        const outstanding = Number(vals[i + 1]);
+        const status = vals[i + 2] as string;
+        if (typeof id === "string" && id.startsWith("I")) {
+          invoiceUpdates.push({ id, outstandingAmount: outstanding, status });
+        }
+      }
+      return 0;
+    }),
     party: {
       update: vi.fn(
         async (args: {

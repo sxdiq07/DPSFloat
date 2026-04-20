@@ -541,9 +541,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Run per-party allocations in parallel with a concurrency cap. Each
+  // party operates on its own data (its own invoices + receipts), so
+  // parallelism is safe. Capped at 10 in-flight — higher gets throttled
+  // by Supabase's pooler connection limit and starts returning errors.
   let allocInvoicesTouched = 0;
   let allocAdvanceTotal = 0;
-  for (const partyId of dirtyPartyIds) {
+  const ALLOC_CONCURRENCY = 10;
+
+  async function allocateOne(partyId: string) {
     const [partyInvoices, partyReceipts] = await Promise.all([
       prisma.invoice.findMany({
         where: { partyId },
@@ -563,18 +569,21 @@ export async function POST(req: NextRequest) {
       receiptDate: r.receiptDate,
       billRefs: billRefMap?.get(r.id),
     }));
-    // Allocation does many sequential writes inside the transaction (one
-    // Invoice.update per invoice + the allocation rows + the party update).
-    // Default Prisma interactive-tx timeout is 5s — easily blown on the
-    // Supabase pooler when a party has 30+ open bills and the round-trip
-    // to Mumbai is 150ms. Bump the window generously.
-    const summary = await prisma.$transaction(
+    return prisma.$transaction(
       async (tx) =>
         allocateForParty(tx, partyId, partyInvoices, receiptsWithRefs),
       { maxWait: 10_000, timeout: 120_000 },
     );
-    allocInvoicesTouched += summary.invoicesTouched;
-    allocAdvanceTotal += summary.advanceLeft;
+  }
+
+  const dirtyList = [...dirtyPartyIds];
+  for (let i = 0; i < dirtyList.length; i += ALLOC_CONCURRENCY) {
+    const batch = dirtyList.slice(i, i + ALLOC_CONCURRENCY);
+    const summaries = await Promise.all(batch.map(allocateOne));
+    for (const s of summaries) {
+      allocInvoicesTouched += s.invoicesTouched;
+      allocAdvanceTotal += s.advanceLeft;
+    }
   }
 
   const durationMs = Date.now() - startedAt;

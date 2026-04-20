@@ -219,19 +219,31 @@ export async function allocateForParty(
     );
   }
 
-  let invoicesTouched = 0;
-  for (const inv of invoices) {
+  // Batch all invoice updates into a single SQL UPDATE ... FROM VALUES
+  // statement. At 73-party scale with 30+ invoices per party this drops
+  // us from ~2000 round-trips to 1 per party.
+  type InvUpdate = { id: string; outstanding: number; status: "OPEN" | "PAID" };
+  const invUpdates: InvUpdate[] = invoices.map((inv) => {
     const allocated = totalByInvoice.get(inv.id) ?? 0;
     const outstanding = round2(Math.max(0, Number(inv.originalAmount) - allocated));
     const status: "OPEN" | "PAID" = outstanding <= 0.01 ? "PAID" : "OPEN";
-    await tx.invoice.update({
-      where: { id: inv.id },
-      data: {
-        outstandingAmount: new Prisma.Decimal(outstanding),
-        status,
-      },
-    });
-    invoicesTouched++;
+    return { id: inv.id, outstanding, status };
+  });
+
+  let invoicesTouched = 0;
+  if (invUpdates.length > 0) {
+    const values = invUpdates.map(
+      (u) => Prisma.sql`(${u.id}::text, ${u.outstanding}::numeric, ${u.status}::"InvoiceStatus")`,
+    );
+    await tx.$executeRaw(Prisma.sql`
+      UPDATE "Invoice" AS i
+      SET "outstandingAmount" = v.outstanding,
+          "status" = v.status,
+          "updatedAt" = NOW()
+      FROM (VALUES ${Prisma.join(values, ",")}) AS v(id, outstanding, status)
+      WHERE i."id" = v.id
+    `);
+    invoicesTouched = invUpdates.length;
   }
 
   // Party advance = sum of unconsumed receipt remainders (excess payments).
