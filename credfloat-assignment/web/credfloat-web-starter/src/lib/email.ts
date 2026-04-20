@@ -32,7 +32,7 @@ function fmtDate(d: Date): string {
   return formatInTimeZone(d, "Asia/Kolkata", "dd MMM yyyy");
 }
 
-function renderTemplate(template: ReminderTemplate, v: ReminderVars) {
+export function renderTemplate(template: ReminderTemplate, v: ReminderVars) {
   const amount = formatINR(v.amount);
   const billDate = fmtDate(v.billDate);
   const dueDate = fmtDate(v.dueDate);

@@ -2,8 +2,13 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Mail, MessageCircle, Send, Loader2 } from "lucide-react";
+import { Mail, MessageCircle, Send, Loader2, Eye } from "lucide-react";
 import { sendReminderNow } from "../_actions/send-reminder";
+import {
+  previewReminder,
+  type ReminderPreview,
+} from "../_actions/preview-reminder";
+import { ReminderPreviewModal } from "./reminder-preview-modal";
 
 type Props = {
   invoiceId: string;
@@ -18,6 +23,26 @@ export function SendReminderButton({
 }: Props) {
   const [open, setOpen] = useState(false);
   const [pending, startPending] = useTransition();
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [preview, setPreview] = useState<ReminderPreview | null>(null);
+
+  const onPreview = () => {
+    setOpen(false);
+    setPreview(null);
+    setPreviewOpen(true);
+    setPreviewLoading(true);
+    previewReminder({ invoiceId })
+      .then((r) => {
+        if (!r.ok) {
+          toast.error(r.error);
+          setPreviewOpen(false);
+          return;
+        }
+        setPreview(r.preview);
+      })
+      .finally(() => setPreviewLoading(false));
+  };
 
   if (!hasEmail && !hasWhatsApp) {
     return (
@@ -79,7 +104,16 @@ export function SendReminderButton({
             onClick={() => setOpen(false)}
             aria-hidden
           />
-          <div className="absolute right-0 z-20 mt-1 min-w-[180px] overflow-hidden rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-surface-1)] py-1 shadow-lg">
+          <div className="absolute right-0 z-20 mt-1 min-w-[200px] overflow-hidden rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-surface-1)] py-1 shadow-lg">
+            <button
+              type="button"
+              onClick={onPreview}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-ink-2 transition-colors hover:bg-[var(--color-surface-3)] hover:text-ink"
+            >
+              <Eye className="h-3.5 w-3.5" />
+              Preview message
+            </button>
+            <div className="my-1 h-px bg-[var(--color-border-subtle)]" />
             <button
               type="button"
               disabled={!hasEmail}
@@ -87,7 +121,7 @@ export function SendReminderButton({
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-ink-2 transition-colors hover:bg-[var(--color-surface-3)] hover:text-ink disabled:cursor-not-allowed disabled:text-ink-3 disabled:hover:bg-transparent"
             >
               <Mail className="h-3.5 w-3.5" />
-              Email
+              Send email
               {!hasEmail && (
                 <span className="ml-auto text-[10px] text-ink-3">
                   no email
@@ -101,7 +135,7 @@ export function SendReminderButton({
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-ink-2 transition-colors hover:bg-[var(--color-surface-3)] hover:text-ink disabled:cursor-not-allowed disabled:text-ink-3 disabled:hover:bg-transparent"
             >
               <MessageCircle className="h-3.5 w-3.5" />
-              WhatsApp
+              Send WhatsApp
               {!hasWhatsApp && (
                 <span className="ml-auto text-[10px] text-ink-3">no number</span>
               )}
@@ -109,6 +143,12 @@ export function SendReminderButton({
           </div>
         </>
       )}
+      <ReminderPreviewModal
+        open={previewOpen}
+        loading={previewLoading}
+        preview={preview}
+        onClose={() => setPreviewOpen(false)}
+      />
     </div>
   );
 }
