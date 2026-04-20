@@ -18,6 +18,7 @@ import {
   PortalLinkPanel,
   type PortalTokenRow,
 } from "./_components/portal-link-panel";
+import { SendReminderButton } from "./_components/send-reminder-button";
 import { formatDistanceToNow } from "date-fns";
 
 export const dynamic = "force-dynamic";
@@ -429,6 +430,7 @@ export default async function ClientDetailPage({
                     <th className="px-8 py-4 text-left font-medium">Due date</th>
                     <th className="px-8 py-4 text-right font-medium">Amount</th>
                     <th className="px-8 py-4 text-left font-medium">Age</th>
+                    <th className="px-8 py-4 text-right font-medium"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -464,6 +466,15 @@ export default async function ClientDetailPage({
                       </td>
                       <td className="px-8 py-4">
                         <AgePill bucket={inv.ageBucket} />
+                      </td>
+                      <td className="px-8 py-4 text-right">
+                        <SendReminderButton
+                          invoiceId={inv.id}
+                          hasEmail={Boolean(inv.party.email)}
+                          hasWhatsApp={Boolean(
+                            inv.party.whatsappNumber || inv.party.phone,
+                          )}
+                        />
                       </td>
                     </tr>
                   ))}

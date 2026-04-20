@@ -1,0 +1,114 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { toast } from "sonner";
+import { Mail, MessageCircle, Send, Loader2 } from "lucide-react";
+import { sendReminderNow } from "../_actions/send-reminder";
+
+type Props = {
+  invoiceId: string;
+  hasEmail: boolean;
+  hasWhatsApp: boolean;
+};
+
+export function SendReminderButton({
+  invoiceId,
+  hasEmail,
+  hasWhatsApp,
+}: Props) {
+  const [open, setOpen] = useState(false);
+  const [pending, startPending] = useTransition();
+
+  if (!hasEmail && !hasWhatsApp) {
+    return (
+      <span className="text-[11px] text-ink-3" title="No contact info on file">
+        —
+      </span>
+    );
+  }
+
+  const dispatch = (channel: "EMAIL" | "WHATSAPP") => {
+    setOpen(false);
+    startPending(async () => {
+      const r = await sendReminderNow({ invoiceId, channel });
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      if (r.clickUrl) {
+        // Click-to-chat mode: open WhatsApp with the message pre-filled.
+        window.open(r.clickUrl, "_blank", "noopener,noreferrer");
+        toast.success("WhatsApp opened with message ready — hit send.");
+        return;
+      }
+      if (r.stubbed) {
+        toast.success(
+          channel === "EMAIL"
+            ? "Email reminder logged (no RESEND_API_KEY — set one to actually send)."
+            : "WhatsApp reminder logged (stubbed).",
+        );
+        return;
+      }
+      toast.success(
+        channel === "EMAIL"
+          ? "Email reminder sent."
+          : "WhatsApp reminder sent.",
+      );
+    });
+  };
+
+  return (
+    <div className="relative inline-block">
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-3)] px-3 py-1.5 text-[12px] font-medium text-ink-2 transition-all hover:border-[var(--color-border-hair)] hover:text-ink disabled:opacity-60"
+      >
+        {pending ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <Send className="h-3 w-3" />
+        )}
+        Send
+      </button>
+      {open && (
+        <>
+          <div
+            className="fixed inset-0 z-10"
+            onClick={() => setOpen(false)}
+            aria-hidden
+          />
+          <div className="absolute right-0 z-20 mt-1 min-w-[180px] overflow-hidden rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-surface-1)] py-1 shadow-lg">
+            <button
+              type="button"
+              disabled={!hasEmail}
+              onClick={() => dispatch("EMAIL")}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-ink-2 transition-colors hover:bg-[var(--color-surface-3)] hover:text-ink disabled:cursor-not-allowed disabled:text-ink-3 disabled:hover:bg-transparent"
+            >
+              <Mail className="h-3.5 w-3.5" />
+              Email
+              {!hasEmail && (
+                <span className="ml-auto text-[10px] text-ink-3">
+                  no email
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              disabled={!hasWhatsApp}
+              onClick={() => dispatch("WHATSAPP")}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-ink-2 transition-colors hover:bg-[var(--color-surface-3)] hover:text-ink disabled:cursor-not-allowed disabled:text-ink-3 disabled:hover:bg-transparent"
+            >
+              <MessageCircle className="h-3.5 w-3.5" />
+              WhatsApp
+              {!hasWhatsApp && (
+                <span className="ml-auto text-[10px] text-ink-3">no number</span>
+              )}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

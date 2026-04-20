@@ -100,6 +100,10 @@ export async function GET(req: NextRequest) {
             channel === "WHATSAPP" &&
             (inv.party.whatsappNumber || inv.party.phone)
           ) {
+            // In click-to-chat mode (no Meta API creds), the cron can't
+            // actually dispatch — a human has to click. Skip silently so
+            // the reminder shows up in the UI's "send now" queue instead.
+            if (!process.env.WHATSAPP_ACCESS_TOKEN) continue;
             const r = await sendWhatsAppReminder({
               to: inv.party.whatsappNumber ?? inv.party.phone ?? "",
               partyName: vars.partyName,
