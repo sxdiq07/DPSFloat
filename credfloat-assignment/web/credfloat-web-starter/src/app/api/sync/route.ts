@@ -413,7 +413,11 @@ export async function POST(req: NextRequest) {
       receiptDate: Date;
       amount: number;
     };
-    const receiptRows: ReceiptRow[] = [];
+    // Dedupe on (clientCompanyId, voucherRef) — the DB has a unique
+    // constraint there, and Postgres rejects an INSERT ... ON CONFLICT
+    // DO UPDATE that proposes to touch the same conflict key twice in
+    // one statement. Keep the last occurrence — it wins the upsert.
+    const receiptByKey = new Map<string, ReceiptRow>();
 
     for (const rec of receipts) {
       const companyId = companyNameToId.get(rec.company);
@@ -428,17 +432,19 @@ export async function POST(req: NextRequest) {
         receiptSkipped++;
         continue;
       }
-      const id = randomUUID();
-      receiptRows.push({
-        id,
+      const dedupeKey = `${companyId}::${rec.voucher_ref}`;
+      receiptByKey.set(dedupeKey, {
+        id: randomUUID(),
         clientCompanyId: companyId,
         partyId,
         voucherRef: rec.voucher_ref,
         receiptDate: new Date(rec.receipt_date),
         amount: rec.amount,
       });
-      receiptCount++;
     }
+    const receiptRows: ReceiptRow[] = [...receiptByKey.values()];
+    receiptCount = receiptRows.length;
+    receiptSkipped = receipts.length - receiptCount;
 
     for (let i = 0; i < receiptRows.length; i += CHUNK) {
       const chunk = receiptRows.slice(i, i + CHUNK);
@@ -557,8 +563,15 @@ export async function POST(req: NextRequest) {
       receiptDate: r.receiptDate,
       billRefs: billRefMap?.get(r.id),
     }));
-    const summary = await prisma.$transaction(async (tx) =>
-      allocateForParty(tx, partyId, partyInvoices, receiptsWithRefs),
+    // Allocation does many sequential writes inside the transaction (one
+    // Invoice.update per invoice + the allocation rows + the party update).
+    // Default Prisma interactive-tx timeout is 5s — easily blown on the
+    // Supabase pooler when a party has 30+ open bills and the round-trip
+    // to Mumbai is 150ms. Bump the window generously.
+    const summary = await prisma.$transaction(
+      async (tx) =>
+        allocateForParty(tx, partyId, partyInvoices, receiptsWithRefs),
+      { maxWait: 10_000, timeout: 120_000 },
     );
     allocInvoicesTouched += summary.invoicesTouched;
     allocAdvanceTotal += summary.advanceLeft;

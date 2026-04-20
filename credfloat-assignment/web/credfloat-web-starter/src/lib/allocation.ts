@@ -284,13 +284,15 @@ export async function allocateAllDirty(
     // already-persisted case where Tally bill-refs were stored on the
     // receipt at ingest. For the cron's post-sync pass we therefore
     // assume billRefs are not needed (they were resolved at ingest).
-    const s = await prisma.$transaction(async (tx) =>
-      allocateForParty(
-        tx,
-        partyId,
-        invoices,
-        receipts.map((r) => ({ id: r.id, amount: Number(r.amount) })),
-      ),
+    const s = await prisma.$transaction(
+      async (tx) =>
+        allocateForParty(
+          tx,
+          partyId,
+          invoices,
+          receipts.map((r) => ({ id: r.id, amount: Number(r.amount) })),
+        ),
+      { maxWait: 10_000, timeout: 120_000 },
     );
     summaries.push(s);
   }
