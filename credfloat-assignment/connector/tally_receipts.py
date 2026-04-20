@@ -98,6 +98,29 @@ RECEIPTS_TDL = """<ENVELOPE>
 
 _INVALID_XML_RE = re.compile(rb"[\x00-\x08\x0B\x0C\x0E-\x1F]")
 
+# Tally sometimes emits numeric character references for control chars
+# (e.g. `&#4;` meaning ASCII 4) which the XML 1.0 spec bans — lxml's C
+# parser rejects the whole document. Scrub them to a space.
+_CHAR_REF_RE = re.compile(rb"&#([xX]?[0-9a-fA-F]+);")
+
+
+def _scrub_char_refs(raw: bytes) -> bytes:
+    def _repl(m: "re.Match[bytes]") -> bytes:
+        token = m.group(1)
+        try:
+            n = (
+                int(token[1:], 16)
+                if token[:1] in (b"x", b"X")
+                else int(token)
+            )
+        except ValueError:
+            return b" "
+        if n in (9, 10, 13) or 32 <= n <= 0x10FFFF:
+            return m.group(0)
+        return b" "
+
+    return _CHAR_REF_RE.sub(_repl, raw)
+
 
 def _parse_date(s: Optional[str]) -> Optional[str]:
     if not s:
@@ -174,6 +197,7 @@ def fetch_receipts(
         return []
 
     raw = _INVALID_XML_RE.sub(b" ", r.content)
+    raw = _scrub_char_refs(raw)
 
     # DEBUG hook — dump raw Tally XML to a file. Very helpful when the
     # parse returns 0 receipts and you need to see what the TDL actually
