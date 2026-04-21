@@ -1,8 +1,20 @@
 import type { Metadata } from "next";
+import { Instrument_Serif } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { ServiceWorkerRegistrar } from "@/components/sw-register";
+
+// Instrument Serif — free Google Font, closest free alternative to the
+// Copernicus-style serif Claude.ai uses for display type. Scoped to the
+// .claude-theme wrapper via a CSS variable so it doesn't leak globally.
+const instrumentSerif = Instrument_Serif({
+  subsets: ["latin"],
+  weight: "400",
+  style: ["normal", "italic"],
+  variable: "--font-serif-display",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Ledger · DPS & Co",
@@ -31,7 +43,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className={instrumentSerif.variable}>
       <body className="min-h-screen bg-surface text-ink antialiased">
         <ThemeProvider>
           {children}
