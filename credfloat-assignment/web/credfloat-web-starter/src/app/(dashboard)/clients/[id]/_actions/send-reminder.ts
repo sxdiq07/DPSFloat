@@ -8,6 +8,10 @@ import { logActivity } from "@/lib/activity";
 import { daysOverdue, getISTToday } from "@/lib/ageing";
 import { sendReminderEmail, selectTemplate } from "@/lib/email";
 import { sendWhatsAppReminder } from "@/lib/whatsapp";
+import { buildLedgerStatement } from "@/lib/ledger-data";
+import { renderLedgerPdf } from "@/lib/ledger-pdf";
+import { signLedgerToken, type LedgerPeriod } from "@/lib/ledger-token";
+import type { LedgerPeriodType } from "@prisma/client";
 
 const schema = z.object({
   invoiceId: z.string(),
@@ -42,7 +46,15 @@ export async function sendReminderNow(
     },
     include: {
       party: true,
-      clientCompany: true,
+      clientCompany: {
+        include: {
+          reminderRules: {
+            where: { enabled: true },
+            orderBy: { createdAt: "asc" },
+            take: 1,
+          },
+        },
+      },
     },
   });
   if (!invoice) return { ok: false, error: "Invoice not found" };
@@ -79,14 +91,45 @@ export async function sendReminderNow(
     daysOverdue: overdue,
   };
 
+  // Resolve reminder rule → ledger period. If attachLedger is on (and
+  // by default it is), we render a PDF and either attach it to the
+  // email or ship a signed /api/ledger/<token> link via WhatsApp text.
+  const rule = invoice.clientCompany.reminderRules[0];
+  const attachLedger = rule?.attachLedger ?? true;
+  const period: LedgerPeriod = resolvePeriodFromRule(
+    rule?.ledgerPeriodType ?? "FY_TO_DATE",
+    rule?.ledgerPeriodStart ?? null,
+    rule?.ledgerPeriodEnd ?? null,
+  );
+
   try {
     if (parsed.data.channel === "EMAIL") {
       if (!invoice.party.email)
         return { ok: false, error: "No email on file for this debtor." };
+
+      let attachments:
+        | Array<{ filename: string; content: Buffer }>
+        | undefined;
+      if (attachLedger) {
+        const statement = await buildLedgerStatement(invoice.partyId, period);
+        if (statement) {
+          const pdf = await renderLedgerPdf(statement);
+          const safeName = statement.party.name
+            .replace(/[^A-Za-z0-9_-]+/g, "_")
+            .slice(0, 50);
+          attachments = [
+            {
+              filename: `${safeName}_ledger_${statement.period.to}.pdf`,
+              content: pdf,
+            },
+          ];
+        }
+      }
       const r = await sendReminderEmail({
         to: invoice.party.email,
         template: selectTemplate(overdue),
         vars,
+        attachments,
       });
       await prisma.reminderSent.create({
         data: {
@@ -116,11 +159,24 @@ export async function sendReminderNow(
         ok: false,
         error: "No WhatsApp or phone number on file for this debtor.",
       };
+
+    // Include a signed 48h ledger-PDF link in the pre-filled message
+    // (click-to-chat mode) / template body (API mode). The debtor taps
+    // the link to download the statement — no attachment uploads needed
+    // for click-to-chat.
+    let ledgerUrl: string | undefined;
+    if (attachLedger) {
+      const token = signLedgerToken({ partyId: invoice.partyId, period });
+      const base = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+      ledgerUrl = `${base}/api/ledger/${token}`;
+    }
+
     const r = await sendWhatsAppReminder({
       to,
       partyName,
       billRef: invoice.billRef,
       amount: Number(invoice.outstandingAmount),
+      ledgerUrl,
       clickContext: {
         clientCompanyName: invoice.clientCompany.displayName,
         billDate: invoice.billDate,
@@ -164,4 +220,16 @@ export async function sendReminderNow(
     });
     return { ok: false, error: msg };
   }
+}
+
+function resolvePeriodFromRule(
+  type: LedgerPeriodType,
+  start: Date | null,
+  end: Date | null,
+): LedgerPeriod {
+  if (type === "CUSTOM") {
+    if (!start || !end) return { type: "FY_TO_DATE" };
+    return { type: "CUSTOM", start: start.toISOString(), end: end.toISOString() };
+  }
+  return { type };
 }

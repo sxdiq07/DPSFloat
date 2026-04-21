@@ -44,6 +44,7 @@ export function renderWhatsAppText(args: {
   dueDate: Date;
   amount: number;
   daysOverdue: number;
+  ledgerUrl?: string;
 }): string {
   const amount = formatINR(args.amount);
   const due = formatInTimeZone(args.dueDate, "Asia/Kolkata", "dd MMM yyyy");
@@ -53,9 +54,12 @@ export function renderWhatsAppText(args: {
       : args.daysOverdue > 0
         ? `Payment follow-up — invoice ${args.billRef} (${amount}) was due ${due} and is now ${args.daysOverdue} days overdue.`
         : `Friendly reminder — invoice ${args.billRef} (${amount}) is due ${due}.`;
+  const ledgerLine = args.ledgerUrl
+    ? `\n\nLedger statement: ${args.ledgerUrl}`
+    : "";
   return (
     `Dear ${args.partyName},\n\n${head}\n\n` +
-    `Please let us know if this has already been settled.\n\n` +
+    `Please let us know if this has already been settled.${ledgerLine}\n\n` +
     `Regards,\n${args.clientCompanyName}`
   );
 }
@@ -74,6 +78,7 @@ export function buildWhatsAppClickUrl(args: {
   dueDate: Date;
   amount: number;
   daysOverdue: number;
+  ledgerUrl?: string;
 }): string | null {
   const to = normalizePhone(args.to);
   if (to.length < 10) return null;
@@ -88,6 +93,8 @@ export async function sendWhatsAppReminder(args: {
   amount: number;
   templateName?: string;
   languageCode?: string;
+  /** Public signed link to the debtor's ledger PDF (48h by default). */
+  ledgerUrl?: string;
   /** Full context needed to render the click-to-chat message body. */
   clickContext?: {
     clientCompanyName: string;
@@ -114,6 +121,7 @@ export async function sendWhatsAppReminder(args: {
         dueDate: args.clickContext.dueDate,
         amount: args.amount,
         daysOverdue: args.clickContext.daysOverdue,
+        ledgerUrl: args.ledgerUrl,
       });
       if (clickUrl) {
         return { id: `wa-click-${Date.now()}`, clickUrl };

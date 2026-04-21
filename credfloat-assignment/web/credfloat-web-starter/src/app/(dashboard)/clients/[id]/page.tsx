@@ -19,6 +19,7 @@ import {
   type PortalTokenRow,
 } from "./_components/portal-link-panel";
 import { SendReminderButton } from "./_components/send-reminder-button";
+import { DownloadLedgerButton } from "./_components/download-ledger-button";
 import { formatDistanceToNow } from "date-fns";
 
 export const dynamic = "force-dynamic";
@@ -389,6 +390,7 @@ export default async function ClientDetailPage({
                     <th className="px-8 py-4 text-right font-medium">
                       Outstanding
                     </th>
+                    <th className="px-8 py-4 text-right font-medium"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -454,6 +456,9 @@ export default async function ClientDetailPage({
                               </span>
                             )}
                           </div>
+                        </td>
+                        <td className="px-8 py-4 text-right">
+                          <DownloadLedgerButton partyId={p.id} />
                         </td>
                       </tr>
                     );

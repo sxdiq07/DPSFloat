@@ -32,6 +32,13 @@ model Firm {
   name            String
   createdAt       DateTime         @default(now())
 
+  // Letterhead / signatory block used on ledger-statement PDFs.
+  // Indian CA firms need FRN (Firm Registration Number with ICAI) and
+  // the signing partner's name + M.No. (ICAI membership number).
+  frn             String?
+  partnerName     String?
+  partnerMno      String?
+
   staff           FirmStaff[]
   clientCompanies ClientCompany[]
 }
@@ -261,10 +268,28 @@ model ReminderRule {
   smsTemplate        String?
   whatsappTemplateId String? // Meta-approved template ID (not raw text)
 
+  // Ledger statement PDF attached to reminders.
+  //   attachLedger      — turn the attachment on/off for this client
+  //   ledgerPeriodType  — how the statement's window is computed
+  //   ledgerPeriodStart — explicit window (only for CUSTOM)
+  //   ledgerPeriodEnd   — explicit window (only for CUSTOM)
+  attachLedger       Boolean            @default(true)
+  ledgerPeriodType   LedgerPeriodType   @default(FY_TO_DATE)
+  ledgerPeriodStart  DateTime?
+  ledgerPeriodEnd    DateTime?
+
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
   @@index([clientCompanyId])
+}
+
+enum LedgerPeriodType {
+  FY_TO_DATE       // 1 Apr of current Indian FY → today
+  LAST_12_MONTHS   // today − 365d → today
+  OPEN_ITEMS_ONLY  // only currently-open bills, no time bound
+  ALL_HISTORY      // everything we have
+  CUSTOM           // honours ledgerPeriodStart / End
 }
 
 enum Channel {

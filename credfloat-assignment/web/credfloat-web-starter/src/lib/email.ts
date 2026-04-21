@@ -161,12 +161,15 @@ ${body}
 
 /**
  * Send a reminder email. Returns provider message ID on success.
- * If RESEND_API_KEY is not configured, logs to console and returns a stub ID (useful for demos).
+ * If RESEND_API_KEY is not configured, logs to console and returns a
+ * stub ID (useful for demos). Attachments, when provided, are passed
+ * through to Resend — each is a {filename, content} pair with raw bytes.
  */
 export async function sendReminderEmail(args: {
   to: string;
   template: ReminderTemplate;
   vars: ReminderVars;
+  attachments?: Array<{ filename: string; content: Buffer }>;
 }): Promise<{ id: string; stubbed?: boolean }> {
   const rendered = renderTemplate(args.template, args.vars);
 
@@ -175,6 +178,10 @@ export async function sendReminderEmail(args: {
       to: args.to,
       subject: rendered.subject,
       template: args.template,
+      attachments: args.attachments?.map((a) => ({
+        filename: a.filename,
+        bytes: a.content.byteLength,
+      })),
     });
     return { id: `stub-${Date.now()}`, stubbed: true };
   }
@@ -185,6 +192,10 @@ export async function sendReminderEmail(args: {
     subject: rendered.subject,
     text: rendered.text,
     html: rendered.html,
+    attachments: args.attachments?.map((a) => ({
+      filename: a.filename,
+      content: a.content,
+    })),
   });
 
   if (error) throw new Error(`Resend error: ${error.message}`);

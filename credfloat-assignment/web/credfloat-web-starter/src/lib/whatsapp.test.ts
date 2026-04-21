@@ -40,6 +40,21 @@ describe("renderWhatsAppText", () => {
     expect(text).toContain("Final reminder");
     expect(text).toContain("45 days overdue");
   });
+
+  it("includes a ledger download link when provided", () => {
+    const text = renderWhatsAppText({
+      ...base,
+      daysOverdue: 10,
+      ledgerUrl: "https://app.example.com/api/ledger/abc.def",
+    });
+    expect(text).toContain("Ledger statement:");
+    expect(text).toContain("https://app.example.com/api/ledger/abc.def");
+  });
+
+  it("omits the ledger line when no URL passed", () => {
+    const text = renderWhatsAppText({ ...base, daysOverdue: 10 });
+    expect(text).not.toContain("Ledger statement:");
+  });
 });
 
 describe("buildWhatsAppClickUrl", () => {
