@@ -244,6 +244,19 @@ def fetch_receipts(
         date_iso = _parse_date(voucher.findtext("DATE"))
         vch_num = (voucher.findtext("VOUCHERNUMBER") or "").strip()
         party_name = (voucher.findtext("PARTYLEDGERNAME") or "").strip()
+        vch_type = (voucher.findtext("VOUCHERTYPENAME") or "").strip()
+
+        # For Journal / Credit Note / Debit Note, only sync entries that
+        # carry an explicit BILLALLOCATIONS reference. Without it, the
+        # voucher is a ledger-level adjustment (bad-debt writeoff, year-
+        # end reclass, advance transfer) that Tally has already reflected
+        # in party.closingBalance — treating it as an on-account receipt
+        # would double-count the debtor relief.
+        require_bill_allocs = vch_type in (
+            "Journal",
+            "Credit Note",
+            "Debit Note",
+        )
 
         if not date_iso:
             skipped_bad_date += 1
@@ -273,8 +286,15 @@ def fetch_receipts(
                 continue
             has_bill_allocs = entry.find("BILLALLOCATIONS.LIST") is not None
             is_party_ledger = bool(party_name) and ledger_name == party_name
-            if has_bill_allocs or is_party_ledger:
-                debtor_entries.append((ledger_name, entry))
+            # Require bill allocations for non-Receipt voucher types —
+            # see comment above. Receipt vouchers still accept on-account
+            # entries (PARTYLEDGERNAME match without bill allocations).
+            if require_bill_allocs:
+                if has_bill_allocs:
+                    debtor_entries.append((ledger_name, entry))
+            else:
+                if has_bill_allocs or is_party_ledger:
+                    debtor_entries.append((ledger_name, entry))
 
         if not debtor_entries:
             skipped_no_party += 1
