@@ -173,6 +173,12 @@ export async function allocateForParty(
 
   let fifoApplied = 0;
   for (const r of receiptsOrdered) {
+    // Skip receipts that came in with bill-refs. Tally already decided
+    // which bills they cover — if some of those bills weren't in our
+    // open-invoice set, it's because Tally has already closed them.
+    // FIFO'ing the "leftover" onto other open bills would double-count
+    // against bills that were never on-account for this receipt.
+    if (r.billRefs && r.billRefs.length > 0) continue;
     let recLeft = receiptRemaining.get(r.id) ?? 0;
     if (recLeft <= 0) continue;
     for (const inv of invoicesSortedByDate) {
@@ -297,9 +303,16 @@ export async function allocateForParty(
     invoicesTouched = invUpdates.length;
   }
 
-  // Party advance = sum of unconsumed receipt remainders (excess payments).
+  // Party advance = unconsumed portion of *on-account* receipts only.
+  // A bill-wise receipt whose refs pointed to closed bills shouldn't
+  // count as advance — Tally already consumed it against those bills,
+  // we just don't see them. Only truly unallocated (no-bill-refs)
+  // receipts that exceeded open bills represent real advance on file.
   let advanceLeft = 0;
-  for (const [, left] of receiptRemaining) advanceLeft += left;
+  for (const r of receipts) {
+    if (r.billRefs && r.billRefs.length > 0) continue;
+    advanceLeft += receiptRemaining.get(r.id) ?? 0;
+  }
   advanceLeft = round2(advanceLeft);
 
   await tx.party.update({

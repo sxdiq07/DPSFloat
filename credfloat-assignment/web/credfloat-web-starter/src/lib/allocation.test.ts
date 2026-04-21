@@ -142,8 +142,12 @@ describe("allocateForParty", () => {
     expect(partyUpdates[0].advanceAmount).toBe(3000);
   });
 
-  it("combines Tally bill-wise with FIFO for the leftover", async () => {
-    const { tx, createdRows, invoiceUpdates } = makeTx();
+  it("does NOT FIFO the leftover of a bill-wise receipt", async () => {
+    // A receipt that Tally stamped with a bill-ref (even if the ref's
+    // bill is closed and not in our DB) must not spill onto unrelated
+    // open bills. Tally already decided where that money went; our job
+    // is only to mirror that decision, not reinvent it.
+    const { tx, createdRows, invoiceUpdates, partyUpdates } = makeTx();
     await allocateForParty(
       tx as unknown as Prisma.TransactionClient,
       "P1",
@@ -156,17 +160,24 @@ describe("allocateForParty", () => {
         },
       ],
     );
-    // 4k to I1 via bill-wise, 6k to I2 via FIFO
-    expect(createdRows).toHaveLength(2);
-    const toI1 = createdRows.find((r) => r.invoiceId === "I1")!;
-    const toI2 = createdRows.find((r) => r.invoiceId === "I2")!;
-    expect(toI1.source).toBe("TALLY_BILLWISE");
-    expect(toI2.source).toBe("FIFO_DERIVED");
-    expect(invoiceUpdates.every((u) => u.status === "PAID")).toBe(true);
+    // Only the bill-wise row for I1 is created. I2 stays fully open.
+    expect(createdRows).toHaveLength(1);
+    expect(createdRows[0]).toMatchObject({
+      invoiceId: "I1",
+      source: "TALLY_BILLWISE",
+    });
+    expect(invoiceUpdates.find((u) => u.id === "I1")!.status).toBe("PAID");
+    expect(invoiceUpdates.find((u) => u.id === "I2")!.status).toBe("OPEN");
+    expect(invoiceUpdates.find((u) => u.id === "I2")!.outstandingAmount).toBe(
+      6000,
+    );
+    // Bill-wise receipt leftover does NOT count as advance — the leftover
+    // was meant for a bill Tally closed elsewhere, not an on-account credit.
+    expect(partyUpdates[0].advanceAmount).toBe(0);
   });
 
-  it("ignores bill-refs that don't match any open invoice", async () => {
-    const { tx, createdRows, partyUpdates } = makeTx();
+  it("skips bill-refs that don't match any open invoice (no FIFO fallback)", async () => {
+    const { tx, createdRows, invoiceUpdates, partyUpdates } = makeTx();
     await allocateForParty(
       tx as unknown as Prisma.TransactionClient,
       "P1",
@@ -179,9 +190,13 @@ describe("allocateForParty", () => {
         },
       ],
     );
-    // Unknown bill ref drops through to FIFO; applied to I1.
-    expect(createdRows).toHaveLength(1);
-    expect(createdRows[0].source).toBe("FIFO_DERIVED");
+    // Unknown bill ref → nothing applied, nothing reported as advance.
+    // The bill it was meant for is simply not in our DB (closed in Tally).
+    expect(createdRows).toHaveLength(0);
+    expect(invoiceUpdates.find((u) => u.id === "I1")!.outstandingAmount).toBe(
+      5000,
+    );
+    expect(invoiceUpdates.find((u) => u.id === "I1")!.status).toBe("OPEN");
     expect(partyUpdates[0].advanceAmount).toBe(0);
   });
 
@@ -215,16 +230,20 @@ describe("allocateForParty", () => {
         {
           id: "R1",
           amount: 5000,
-          // Tally claims 5000 against B001 but B001 is only 3000 — cap it.
           billRefs: [{ billRef: "B001", amount: 5000 }],
         },
       ],
     );
-    // 3k capped onto I1 bill-wise; 2k rolls to I2 via FIFO
-    const toI1 = createdRows.find((r) => r.invoiceId === "I1")!;
-    const toI2 = createdRows.find((r) => r.invoiceId === "I2")!;
-    expect(Number(toI1.amount)).toBe(3000);
-    expect(Number(toI2.amount)).toBe(2000);
-    expect(invoiceUpdates.every((u) => u.status === "PAID")).toBe(true);
+    // 3k capped onto I1 bill-wise. The remaining 2k is NOT pushed onto
+    // I2 — bill-wise receipts do not fall through to FIFO. Tally meant
+    // that 2k for something we don't see (likely a closed bill).
+    expect(createdRows).toHaveLength(1);
+    expect(createdRows[0].invoiceId).toBe("I1");
+    expect(Number(createdRows[0].amount)).toBe(3000);
+    expect(invoiceUpdates.find((u) => u.id === "I1")!.status).toBe("PAID");
+    expect(invoiceUpdates.find((u) => u.id === "I2")!.status).toBe("OPEN");
+    expect(invoiceUpdates.find((u) => u.id === "I2")!.outstandingAmount).toBe(
+      2000,
+    );
   });
 });
