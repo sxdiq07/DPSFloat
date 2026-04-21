@@ -101,16 +101,18 @@ export default async function ClientDetailPage({
     },
   });
 
-  const totalOutstanding = client.invoices.reduce(
-    (sum, i) => sum + Number(i.outstandingAmount),
-    0,
-  );
+  // Ledger balance is the truth — Tally has already netted every sale,
+  // receipt, credit note, and journal adjustment on the debtor ledger.
+  // The actual "due" from a debtor is therefore max(0, closingBalance).
+  // Invoice-level outstandings (post-FIFO) remain the per-bill breakdown
+  // for reminder targeting and ageing, but they can diverge from the
+  // ledger when receipts landed on ledgers we didn't sync (e.g. bank
+  // adjustments, non-debtor sub-groups) — in that case trust the ledger.
+  const partyLedgerDue = (closingBalance: unknown) =>
+    Math.max(0, Number(closingBalance));
 
-  // Invoice-based "actual due" per party — sum of their open invoices'
-  // outstandingAmount post-FIFO. This is what every debtor-level number
-  // in this page uses instead of Party.closingBalance. closingBalance is
-  // kept in the model for reconciliation against Tally but it mixes in
-  // advances/credit notes/journal adjustments that aren't pending bills.
+  // Invoice-level due per party — used as a secondary drill-down figure
+  // and to flag when FIFO's sum-of-bills disagrees with the ledger.
   const invoiceOutstandingByParty = new Map<string, number>();
   for (const inv of client.invoices) {
     invoiceOutstandingByParty.set(
@@ -119,12 +121,22 @@ export default async function ClientDetailPage({
         Number(inv.outstandingAmount),
     );
   }
-  const partyDue = (partyId: string) =>
+  const partyInvoiceDue = (partyId: string) =>
     invoiceOutstandingByParty.get(partyId) ?? 0;
 
+  // Total outstanding for this client = sum of positive debtor ledger
+  // balances (not sum of open invoice amounts).
+  const totalOutstanding = client.parties.reduce(
+    (sum, p) => sum + partyLedgerDue(p.closingBalance),
+    0,
+  );
+
   const partiesWithBalance = client.parties
-    .filter((p) => partyDue(p.id) > 0)
-    .sort((a, b) => partyDue(b.id) - partyDue(a.id));
+    .filter((p) => partyLedgerDue(p.closingBalance) > 0)
+    .sort(
+      (a, b) =>
+        partyLedgerDue(b.closingBalance) - partyLedgerDue(a.closingBalance),
+    );
   const reachable = partiesWithBalance.filter(
     (p) => p.email || p.phone || p.whatsappNumber,
   ).length;
@@ -353,7 +365,7 @@ export default async function ClientDetailPage({
                     phone: p.phone,
                     whatsapp: p.whatsappNumber,
                     address: p.address,
-                    outstanding: partyDue(p.id),
+                    outstanding: partyLedgerDue(p.closingBalance),
                   }))}
                 />
               </div>
@@ -422,20 +434,23 @@ export default async function ClientDetailPage({
                         </td>
                         <td className="tabular px-8 py-4 text-right font-medium text-ink">
                           <div className="flex flex-col items-end">
-                            <span>{formatINR(partyDue(p.id))}</span>
+                            <span>
+                              {formatINR(partyLedgerDue(p.closingBalance))}
+                            </span>
                             {Number(p.advanceAmount) > 0 && (
                               <span className="mt-0.5 text-[10.5px] font-medium text-emerald-700">
                                 advance {formatINR(Number(p.advanceAmount))}
                               </span>
                             )}
                             {Math.abs(
-                              Number(p.closingBalance) - partyDue(p.id),
+                              partyInvoiceDue(p.id) -
+                                partyLedgerDue(p.closingBalance),
                             ) > 1 && (
                               <span
                                 className="mt-0.5 text-[10.5px] text-ink-3"
-                                title="Gross ledger balance per Tally (includes advances, credit notes, journal adjustments)"
+                                title="Sum of open bill residuals post-FIFO — differs from ledger when Tally has adjustments we didn't sync."
                               >
-                                ledger {formatINR(Number(p.closingBalance))}
+                                bills {formatINR(partyInvoiceDue(p.id))}
                               </span>
                             )}
                           </div>

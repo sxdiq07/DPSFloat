@@ -50,11 +50,15 @@ export default async function ClientsPage({
   const ids = companies.map((c) => c.id);
 
   const [totals, overdueTotals] = await Promise.all([
-    prisma.invoice.groupBy({
+    // Per-client due — sum of that client's debtors' positive ledger
+    // balances (the actual money owed to each firm client).
+    prisma.party.groupBy({
       by: ["clientCompanyId"],
-      where: { clientCompanyId: { in: ids }, status: "OPEN" },
-      _sum: { outstandingAmount: true },
+      where: { clientCompanyId: { in: ids }, closingBalance: { gt: 0 } },
+      _sum: { closingBalance: true },
     }),
+    // 60-90 / 90+ overdue slice stays invoice-based — those buckets
+    // only exist at bill level.
     prisma.invoice.groupBy({
       by: ["clientCompanyId"],
       where: {
@@ -67,7 +71,7 @@ export default async function ClientsPage({
   ]);
 
   const totalById = new Map(
-    totals.map((t) => [t.clientCompanyId, Number(t._sum.outstandingAmount ?? 0)]),
+    totals.map((t) => [t.clientCompanyId, Number(t._sum.closingBalance ?? 0)]),
   );
   const overdueById = new Map(
     overdueTotals.map((t) => [

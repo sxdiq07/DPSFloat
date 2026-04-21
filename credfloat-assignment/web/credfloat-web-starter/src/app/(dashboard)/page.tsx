@@ -52,10 +52,15 @@ export default async function OverviewPage() {
     partyCount,
     clientCount,
   ] = await Promise.all([
-    prisma.invoice.aggregate({
-      where: { clientCompany: { firmId }, status: "OPEN" },
-      _sum: { outstandingAmount: true },
+    // Total outstanding = sum of positive debtor ledger balances. The
+    // ledger is the truth — it nets every invoice, receipt, credit note
+    // and journal adjustment Tally knows about. Invoice-level sums can
+    // diverge when receipts landed on non-debtor ledgers we didn't sync.
+    prisma.party.aggregate({
+      where: { clientCompany: { firmId }, closingBalance: { gt: 0 } },
+      _sum: { closingBalance: true },
     }),
+    // 90+ bucket stays invoice-based — ageing only exists at bill level.
     prisma.invoice.aggregate({
       where: { clientCompany: { firmId }, status: "OPEN", ageBucket: "DAYS_90_PLUS" },
       _sum: { outstandingAmount: true },
@@ -84,11 +89,15 @@ export default async function OverviewPage() {
       where: { clientCompany: { firmId }, status: "OPEN" },
       _sum: { outstandingAmount: true },
     }),
-    prisma.invoice.groupBy({
+    // Top clients by actual due — sum of debtors' positive ledger
+    // balances per client. Group at the party level, then aggregate by
+    // clientCompanyId. Matches the "ledger balance is the truth" rule
+    // used for the firm-level total.
+    prisma.party.groupBy({
       by: ["clientCompanyId"],
-      where: { clientCompany: { firmId }, status: "OPEN" },
-      _sum: { outstandingAmount: true },
-      orderBy: { _sum: { outstandingAmount: "desc" } },
+      where: { clientCompany: { firmId }, closingBalance: { gt: 0 } },
+      _sum: { closingBalance: true },
+      orderBy: { _sum: { closingBalance: "desc" } },
       take: 10,
     }),
     prisma.invoice.groupBy({
@@ -104,45 +113,32 @@ export default async function OverviewPage() {
     prisma.clientCompany.count({ where: { firmId } }),
   ]);
 
-  // Cross-client duplicate detection — use each party's actual due
-  // (sum of their open invoice outstandings post-FIFO), not gross
-  // closingBalance. Parties whose ledger closing balance is positive
-  // but whose FIFO-adjusted open invoices sum to zero aren't a real
-  // exposure and shouldn't surface here.
-  const [dupSource, dupOutstandings] = await Promise.all([
-    prisma.party.findMany({
-      where: { clientCompany: { firmId } },
-      select: {
-        id: true,
-        tallyLedgerName: true,
-        mailingName: true,
-        clientCompanyId: true,
-        clientCompany: { select: { displayName: true } },
-      },
-    }),
-    prisma.invoice.groupBy({
-      by: ["partyId"],
-      where: { clientCompany: { firmId }, status: "OPEN" },
-      _sum: { outstandingAmount: true },
-    }),
-  ]);
-  const duesByPartyId = new Map<string, number>(
-    dupOutstandings.map((o) => [
-      o.partyId,
-      Number(o._sum.outstandingAmount ?? 0),
-    ]),
-  );
+  // Cross-client duplicate detection — ledger balance (closingBalance)
+  // is the real exposure number. Parties with non-positive balances
+  // aren't a risk.
+  const dupSource = await prisma.party.findMany({
+    where: {
+      clientCompany: { firmId },
+      closingBalance: { gt: 0 },
+    },
+    select: {
+      id: true,
+      tallyLedgerName: true,
+      mailingName: true,
+      closingBalance: true,
+      clientCompanyId: true,
+      clientCompany: { select: { displayName: true } },
+    },
+  });
   const dupGroups = groupDuplicates(
-    dupSource
-      .filter((p) => (duesByPartyId.get(p.id) ?? 0) > 0)
-      .map<DupCandidate>((p) => ({
-        id: p.id,
-        tallyLedgerName: p.tallyLedgerName,
-        mailingName: p.mailingName,
-        closingBalance: duesByPartyId.get(p.id) ?? 0,
-        clientCompanyId: p.clientCompanyId,
-        clientCompanyName: p.clientCompany.displayName,
-      })),
+    dupSource.map<DupCandidate>((p) => ({
+      id: p.id,
+      tallyLedgerName: p.tallyLedgerName,
+      mailingName: p.mailingName,
+      closingBalance: Number(p.closingBalance),
+      clientCompanyId: p.clientCompanyId,
+      clientCompanyName: p.clientCompany.displayName,
+    })),
   ).slice(0, 10);
 
   // Secondary queries for the storytelling section
@@ -164,7 +160,7 @@ export default async function OverviewPage() {
     }),
   ]);
 
-  const totalOutstanding = Number(totalOutstandingAgg._sum.outstandingAmount ?? 0);
+  const totalOutstanding = Number(totalOutstandingAgg._sum.closingBalance ?? 0);
   const overdue90 = Number(overdue90Agg._sum.outstandingAmount ?? 0);
   const collectionsThisMonth = Number(collectionsAgg._sum.amount ?? 0);
 
@@ -192,7 +188,7 @@ export default async function OverviewPage() {
     return {
       id: t.clientCompanyId,
       name: meta?.displayName ?? "(unknown)",
-      outstanding: Number(t._sum.outstandingAmount ?? 0),
+      outstanding: Number(t._sum.closingBalance ?? 0),
       overdue: overdueById.get(t.clientCompanyId) ?? 0,
       debtorCount: meta?._count.parties ?? 0,
     };
