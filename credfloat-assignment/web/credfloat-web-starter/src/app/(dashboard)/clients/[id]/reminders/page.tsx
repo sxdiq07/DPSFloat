@@ -48,6 +48,19 @@ export default async function ReminderConfigPage({
           emailTemplate: rule?.emailTemplate ?? "",
           smsTemplate: rule?.smsTemplate ?? "",
           whatsappTemplateId: rule?.whatsappTemplateId ?? "",
+          attachLedger: rule?.attachLedger ?? true,
+          ledgerPeriodType: (rule?.ledgerPeriodType ?? "FY_TO_DATE") as
+            | "FY_TO_DATE"
+            | "LAST_12_MONTHS"
+            | "OPEN_ITEMS_ONLY"
+            | "ALL_HISTORY"
+            | "CUSTOM",
+          ledgerPeriodStart: rule?.ledgerPeriodStart
+            ? rule.ledgerPeriodStart.toISOString().slice(0, 10)
+            : "",
+          ledgerPeriodEnd: rule?.ledgerPeriodEnd
+            ? rule.ledgerPeriodEnd.toISOString().slice(0, 10)
+            : "",
         }}
       />
     </div>

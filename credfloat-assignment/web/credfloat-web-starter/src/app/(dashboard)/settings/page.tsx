@@ -3,6 +3,7 @@ import { requireAuth, requireFirmId } from "@/lib/session";
 import { formatDistanceToNow } from "date-fns";
 import { PageHeader } from "@/components/ui/page-header";
 import { StaffManager } from "./_components/staff-manager";
+import { FirmLetterhead } from "./_components/firm-letterhead";
 
 export const dynamic = "force-dynamic";
 
@@ -78,6 +79,15 @@ export default async function SettingsPage() {
           />
         </dl>
       </section>
+
+      {/* Letterhead */}
+      <FirmLetterhead
+        firmName={firm?.name ?? ""}
+        frn={firm?.frn ?? null}
+        partnerName={firm?.partnerName ?? null}
+        partnerMno={firm?.partnerMno ?? null}
+        canManage={canManage}
+      />
 
       {/* Staff */}
       <StaffManager

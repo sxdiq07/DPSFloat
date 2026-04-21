@@ -4,6 +4,10 @@ import { daysOverdue, getISTToday } from "@/lib/ageing";
 import { sendReminderEmail, selectTemplate } from "@/lib/email";
 import { sendWhatsAppReminder } from "@/lib/whatsapp";
 import { isIndianHoliday, todayISTString } from "@/lib/holidays";
+import { buildLedgerStatement } from "@/lib/ledger-data";
+import { renderLedgerPdf } from "@/lib/ledger-pdf";
+import { signLedgerToken, type LedgerPeriod } from "@/lib/ledger-token";
+import type { LedgerPeriodType } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -80,6 +84,24 @@ export async function GET(req: NextRequest) {
         daysOverdue: overdue,
       };
 
+      // Resolve ledger attachment once per invoice — same settings drive
+      // every channel for this debtor. Render the PDF lazily (only for
+      // email) but sign the token upfront so WhatsApp gets a URL.
+      const attachLedger = rule.attachLedger;
+      const period = resolvePeriodFromRule(
+        rule.ledgerPeriodType,
+        rule.ledgerPeriodStart,
+        rule.ledgerPeriodEnd,
+      );
+      let ledgerPdf: Buffer | undefined;
+      let ledgerFilename: string | undefined;
+      let ledgerUrl: string | undefined;
+      if (attachLedger) {
+        const token = signLedgerToken({ partyId: inv.partyId, period });
+        const base = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+        ledgerUrl = `${base}/api/ledger/${token}`;
+      }
+
       // Dispatch on each enabled channel, skipping if already sent today
       for (const channel of rule.channels) {
         // Idempotency: skip if a reminder on this invoice+channel was sent today
@@ -95,10 +117,36 @@ export async function GET(req: NextRequest) {
         try {
           let providerId = "";
           if (channel === "EMAIL" && inv.party.email) {
+            // Render the PDF on first email-channel hit for this invoice.
+            // Other same-invoice channels reuse the buffer.
+            let attachments:
+              | Array<{ filename: string; content: Buffer }>
+              | undefined;
+            if (attachLedger) {
+              if (!ledgerPdf) {
+                const statement = await buildLedgerStatement(
+                  inv.partyId,
+                  period,
+                );
+                if (statement) {
+                  ledgerPdf = await renderLedgerPdf(statement);
+                  const safe = statement.party.name
+                    .replace(/[^A-Za-z0-9_-]+/g, "_")
+                    .slice(0, 50);
+                  ledgerFilename = `${safe}_ledger_${statement.period.to}.pdf`;
+                }
+              }
+              if (ledgerPdf && ledgerFilename) {
+                attachments = [
+                  { filename: ledgerFilename, content: ledgerPdf },
+                ];
+              }
+            }
             const r = await sendReminderEmail({
               to: inv.party.email,
               template: selectTemplate(overdue),
               vars,
+              attachments,
             });
             providerId = r.id;
           } else if (
@@ -114,6 +162,7 @@ export async function GET(req: NextRequest) {
               partyName: vars.partyName,
               billRef: vars.billRef,
               amount: vars.amount,
+              ledgerUrl,
             });
             providerId = r.id;
           } else if (channel === "SMS") {
@@ -159,4 +208,16 @@ export async function GET(req: NextRequest) {
     errors: errors.slice(0, 20),
     timestamp: new Date().toISOString(),
   });
+}
+
+function resolvePeriodFromRule(
+  type: LedgerPeriodType,
+  start: Date | null,
+  end: Date | null,
+): LedgerPeriod {
+  if (type === "CUSTOM") {
+    if (!start || !end) return { type: "FY_TO_DATE" };
+    return { type: "CUSTOM", start: start.toISOString(), end: end.toISOString() };
+  }
+  return { type };
 }

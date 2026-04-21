@@ -9,6 +9,14 @@ import { sendWhatsAppReminder } from "@/lib/whatsapp";
 
 const channelEnum = z.enum(["EMAIL", "SMS", "WHATSAPP"]);
 
+const ledgerPeriodEnum = z.enum([
+  "FY_TO_DATE",
+  "LAST_12_MONTHS",
+  "OPEN_ITEMS_ONLY",
+  "ALL_HISTORY",
+  "CUSTOM",
+]);
+
 const ruleSchema = z.object({
   clientId: z.string().min(1),
   enabled: z.boolean(),
@@ -17,6 +25,10 @@ const ruleSchema = z.object({
   emailTemplate: z.string().optional().nullable(),
   smsTemplate: z.string().max(160).optional().nullable(),
   whatsappTemplateId: z.string().optional().nullable(),
+  attachLedger: z.boolean().default(true),
+  ledgerPeriodType: ledgerPeriodEnum.default("FY_TO_DATE"),
+  ledgerPeriodStart: z.string().optional().nullable(),
+  ledgerPeriodEnd: z.string().optional().nullable(),
 });
 
 export async function updateReminderRule(
@@ -45,28 +57,39 @@ export async function updateReminderRule(
     );
     const dedupedChannels = Array.from(new Set(parsed.data.channels));
 
+    // CUSTOM period needs both endpoints; other types ignore them.
+    const ledgerStart =
+      parsed.data.ledgerPeriodType === "CUSTOM" && parsed.data.ledgerPeriodStart
+        ? new Date(parsed.data.ledgerPeriodStart)
+        : null;
+    const ledgerEnd =
+      parsed.data.ledgerPeriodType === "CUSTOM" && parsed.data.ledgerPeriodEnd
+        ? new Date(parsed.data.ledgerPeriodEnd)
+        : null;
+
+    const baseData = {
+      enabled: parsed.data.enabled,
+      triggerDays: dedupedDays,
+      channels: dedupedChannels,
+      emailTemplate: parsed.data.emailTemplate ?? null,
+      smsTemplate: parsed.data.smsTemplate ?? null,
+      whatsappTemplateId: parsed.data.whatsappTemplateId ?? null,
+      attachLedger: parsed.data.attachLedger,
+      ledgerPeriodType: parsed.data.ledgerPeriodType,
+      ledgerPeriodStart: ledgerStart,
+      ledgerPeriodEnd: ledgerEnd,
+    };
+
     if (existing) {
       await prisma.reminderRule.update({
         where: { id: existing.id },
-        data: {
-          enabled: parsed.data.enabled,
-          triggerDays: dedupedDays,
-          channels: dedupedChannels,
-          emailTemplate: parsed.data.emailTemplate ?? null,
-          smsTemplate: parsed.data.smsTemplate ?? null,
-          whatsappTemplateId: parsed.data.whatsappTemplateId ?? null,
-        },
+        data: baseData,
       });
     } else {
       await prisma.reminderRule.create({
         data: {
           clientCompanyId: client.id,
-          enabled: parsed.data.enabled,
-          triggerDays: dedupedDays,
-          channels: dedupedChannels,
-          emailTemplate: parsed.data.emailTemplate ?? null,
-          smsTemplate: parsed.data.smsTemplate ?? null,
-          whatsappTemplateId: parsed.data.whatsappTemplateId ?? null,
+          ...baseData,
         },
       });
     }

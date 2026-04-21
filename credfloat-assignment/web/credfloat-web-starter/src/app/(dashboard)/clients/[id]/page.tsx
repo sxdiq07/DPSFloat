@@ -20,6 +20,7 @@ import {
 } from "./_components/portal-link-panel";
 import { SendReminderButton } from "./_components/send-reminder-button";
 import { DownloadLedgerButton } from "./_components/download-ledger-button";
+import { BookOpen } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 export const dynamic = "force-dynamic";
@@ -458,7 +459,16 @@ export default async function ClientDetailPage({
                           </div>
                         </td>
                         <td className="px-8 py-4 text-right">
-                          <DownloadLedgerButton partyId={p.id} />
+                          <div className="inline-flex items-center gap-1.5">
+                            <Link
+                              href={`/clients/${client.id}/ledger/${p.id}`}
+                              title="Open ledger drill-down"
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-3)] text-ink-3 transition-all hover:border-[var(--color-border-hair)] hover:text-ink"
+                            >
+                              <BookOpen className="h-3 w-3" />
+                            </Link>
+                            <DownloadLedgerButton partyId={p.id} />
+                          </div>
                         </td>
                       </tr>
                     );

@@ -25,6 +25,21 @@ const CHANNEL_HINT: Record<Channel, string> = {
   WHATSAPP: "Meta Cloud API; requires phone-number id + access token.",
 };
 
+type LedgerPeriodType =
+  | "FY_TO_DATE"
+  | "LAST_12_MONTHS"
+  | "OPEN_ITEMS_ONLY"
+  | "ALL_HISTORY"
+  | "CUSTOM";
+
+const PERIOD_LABEL: Record<LedgerPeriodType, string> = {
+  FY_TO_DATE: "Current FY to date (1 Apr → today)",
+  LAST_12_MONTHS: "Last 12 months",
+  OPEN_ITEMS_ONLY: "Only open / unpaid bills",
+  ALL_HISTORY: "All transactions we have",
+  CUSTOM: "Custom date range",
+};
+
 export function ReminderForm({
   clientId,
   clientName,
@@ -39,6 +54,10 @@ export function ReminderForm({
     emailTemplate: string;
     smsTemplate: string;
     whatsappTemplateId: string;
+    attachLedger: boolean;
+    ledgerPeriodType: LedgerPeriodType;
+    ledgerPeriodStart: string; // yyyy-mm-dd or ""
+    ledgerPeriodEnd: string;
   };
 }) {
   const [enabled, setEnabled] = useState(initial.enabled);
@@ -49,6 +68,16 @@ export function ReminderForm({
   const [smsTemplate, setSmsTemplate] = useState(initial.smsTemplate);
   const [whatsappTemplateId, setWhatsappTemplateId] = useState(
     initial.whatsappTemplateId,
+  );
+  const [attachLedger, setAttachLedger] = useState(initial.attachLedger);
+  const [ledgerPeriodType, setLedgerPeriodType] = useState<LedgerPeriodType>(
+    initial.ledgerPeriodType,
+  );
+  const [ledgerPeriodStart, setLedgerPeriodStart] = useState(
+    initial.ledgerPeriodStart,
+  );
+  const [ledgerPeriodEnd, setLedgerPeriodEnd] = useState(
+    initial.ledgerPeriodEnd,
   );
   const [testChannel, setTestChannel] = useState<Channel>("EMAIL");
   const [testTo, setTestTo] = useState("");
@@ -81,6 +110,13 @@ export function ReminderForm({
   };
 
   const onSave = () => {
+    if (
+      ledgerPeriodType === "CUSTOM" &&
+      (!ledgerPeriodStart || !ledgerPeriodEnd)
+    ) {
+      toast.error("Custom period needs both start and end dates.");
+      return;
+    }
     startSave(async () => {
       const res = await updateReminderRule({
         clientId,
@@ -90,6 +126,12 @@ export function ReminderForm({
         emailTemplate: emailTemplate || null,
         smsTemplate: smsTemplate || null,
         whatsappTemplateId: whatsappTemplateId || null,
+        attachLedger,
+        ledgerPeriodType,
+        ledgerPeriodStart:
+          ledgerPeriodType === "CUSTOM" ? ledgerPeriodStart : null,
+        ledgerPeriodEnd:
+          ledgerPeriodType === "CUSTOM" ? ledgerPeriodEnd : null,
       });
       if (res.ok) toast.success("Reminder rule saved");
       else toast.error(res.error);
@@ -249,6 +291,75 @@ export function ReminderForm({
             );
           })}
         </div>
+      </section>
+
+      {/* Ledger attachment */}
+      <section className="card-apple p-8">
+        <div className="flex items-start justify-between gap-6">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3">
+              Ledger attachment
+            </p>
+            <h2 className="mt-2 text-[20px] font-semibold text-ink">
+              Send a ledger PDF with each reminder
+            </h2>
+            <p className="mt-1 max-w-xl text-[14.5px] leading-relaxed text-ink-3">
+              Emails carry the PDF as an attachment; WhatsApp reminders carry
+              a signed 48-hour download link. Signatory block uses your firm
+              letterhead (FRN and partner M.No. — set in Settings).
+            </p>
+          </div>
+          <Switch checked={attachLedger} onCheckedChange={setAttachLedger} />
+        </div>
+
+        {attachLedger && (
+          <div className="mt-7 space-y-4">
+            <div>
+              <Label className="text-[12.5px]">Statement period</Label>
+              <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                {(Object.keys(PERIOD_LABEL) as LedgerPeriodType[]).map((t) => {
+                  const active = ledgerPeriodType === t;
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setLedgerPeriodType(t)}
+                      className={`rounded-xl border p-3 text-left text-[13.5px] transition-all ${
+                        active
+                          ? "border-[var(--color-accent-blue)] bg-[rgba(0,113,227,0.04)] text-ink"
+                          : "border-[var(--color-border-subtle)] bg-[var(--color-surface-3)] text-ink-2 hover:border-[var(--color-border-hair)]"
+                      }`}
+                    >
+                      {PERIOD_LABEL[t]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            {ledgerPeriodType === "CUSTOM" && (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div>
+                  <Label className="text-[12.5px]">From</Label>
+                  <input
+                    type="date"
+                    value={ledgerPeriodStart}
+                    onChange={(e) => setLedgerPeriodStart(e.target.value)}
+                    className="tabular mt-1 block w-full rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-surface-1)] px-3 py-2 text-[14px] text-ink focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <Label className="text-[12.5px]">To</Label>
+                  <input
+                    type="date"
+                    value={ledgerPeriodEnd}
+                    onChange={(e) => setLedgerPeriodEnd(e.target.value)}
+                    className="tabular mt-1 block w-full rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-surface-1)] px-3 py-2 text-[14px] text-ink focus:outline-none"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </section>
 
       {/* Templates */}
