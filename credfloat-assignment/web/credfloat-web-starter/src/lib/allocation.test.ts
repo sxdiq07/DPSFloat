@@ -185,6 +185,26 @@ describe("allocateForParty", () => {
     expect(partyUpdates[0].advanceAmount).toBe(0);
   });
 
+  it("reconciles invoice-sum down to closingBalance, oldest first", async () => {
+    // Ledger says only 3000 is due, but two bills total 15000.
+    // Expected: oldest (I1, 10k) knocked to 0 first; then I2 knocked
+    // from 5k to 3k — final invoice-sum = 3000 matches ledger.
+    const { tx, invoiceUpdates } = makeTx();
+    await allocateForParty(
+      tx as unknown as Prisma.TransactionClient,
+      "P1",
+      [inv("I1", "B001", 60, 10000), inv("I2", "B002", 30, 5000)],
+      [], // no receipts synced — the gap is pure reconciliation
+      3000, // closingBalance — truth per Tally
+    );
+    const i1 = invoiceUpdates.find((u) => u.id === "I1")!;
+    const i2 = invoiceUpdates.find((u) => u.id === "I2")!;
+    expect(i1.outstandingAmount).toBe(0);
+    expect(i1.status).toBe("PAID");
+    expect(i2.outstandingAmount).toBe(3000);
+    expect(i2.status).toBe("OPEN");
+  });
+
   it("caps a bill-wise allocation at the invoice's remaining capacity", async () => {
     const { tx, createdRows, invoiceUpdates } = makeTx();
     await allocateForParty(

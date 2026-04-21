@@ -550,7 +550,7 @@ export async function POST(req: NextRequest) {
   const ALLOC_CONCURRENCY = 10;
 
   async function allocateOne(partyId: string) {
-    const [partyInvoices, partyReceipts] = await Promise.all([
+    const [partyInvoices, partyReceipts, party] = await Promise.all([
       prisma.invoice.findMany({
         where: { partyId },
         select: { id: true, billRef: true, billDate: true, originalAmount: true },
@@ -561,6 +561,10 @@ export async function POST(req: NextRequest) {
         select: { id: true, amount: true, receiptDate: true },
         orderBy: { receiptDate: "asc" },
       }),
+      prisma.party.findUnique({
+        where: { id: partyId },
+        select: { closingBalance: true },
+      }),
     ]);
     const billRefMap = receiptBillRefsByParty.get(partyId);
     const receiptsWithRefs = partyReceipts.map((r) => ({
@@ -569,9 +573,16 @@ export async function POST(req: NextRequest) {
       receiptDate: r.receiptDate,
       billRefs: billRefMap?.get(r.id),
     }));
+    const closing = Number(party?.closingBalance ?? 0);
     return prisma.$transaction(
       async (tx) =>
-        allocateForParty(tx, partyId, partyInvoices, receiptsWithRefs),
+        allocateForParty(
+          tx,
+          partyId,
+          partyInvoices,
+          receiptsWithRefs,
+          closing,
+        ),
       { maxWait: 10_000, timeout: 120_000 },
     );
   }

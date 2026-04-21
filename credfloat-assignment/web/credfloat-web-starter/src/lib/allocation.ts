@@ -72,6 +72,19 @@ export async function allocateForParty(
     originalAmount: Prisma.Decimal;
   }>,
   receipts: ReceiptInput[],
+  /**
+   * Party.closingBalance from Tally — the canonical "money owed" at the
+   * ledger level. After TALLY_BILLWISE and FIFO_DERIVED passes, if the
+   * sum of invoice outstandings still exceeds this number, apply the
+   * gap FIFO-style (oldest first) so bill-level numbers reconcile with
+   * the ledger. This closes the gap caused by receipts Tally knows
+   * about but that we didn't sync (typically receipts on non-debtor
+   * ledgers like bank/cash in our connector). Pass `undefined` to skip
+   * the reconciliation pass entirely — useful in tests and when the
+   * caller doesn't have a trustworthy ledger balance to reconcile
+   * against.
+   */
+  closingBalance?: number,
 ): Promise<AllocationSummary> {
   // Drop everything non-MANUAL on this party's receipts. MANUAL survives.
   await tx.receiptAllocation.deleteMany({
@@ -219,13 +232,51 @@ export async function allocateForParty(
     );
   }
 
+  // Per-invoice outstanding after the allocation passes.
+  const invoiceOutstanding = new Map<string, number>();
+  for (const inv of invoices) {
+    const allocated = totalByInvoice.get(inv.id) ?? 0;
+    invoiceOutstanding.set(
+      inv.id,
+      round2(Math.max(0, Number(inv.originalAmount) - allocated)),
+    );
+  }
+
+  // Ledger reconciliation (opt-in). If the caller passed a trustworthy
+  // closingBalance and our invoice-sum still exceeds it, Tally is
+  // netting in receipts we don't have allocation rows for (typically
+  // because they landed on ledgers outside Sundry Debtors and our
+  // connector skipped them). Close the gap by knocking down oldest
+  // bills first so ageing buckets match the ledger reality. No
+  // allocation rows created — this is a reconciliation tail, not a
+  // real receipt.
+  let reconciled = 0;
+  if (typeof closingBalance === "number") {
+    const target = Math.max(0, closingBalance);
+    let currentSum = 0;
+    for (const [, out] of invoiceOutstanding) currentSum += out;
+    currentSum = round2(currentSum);
+
+    if (currentSum > target) {
+      let gap = round2(currentSum - target);
+      for (const inv of invoicesSortedByDate) {
+        if (gap <= 0.01) break;
+        const out = invoiceOutstanding.get(inv.id) ?? 0;
+        if (out <= 0) continue;
+        const knock = round2(Math.min(gap, out));
+        invoiceOutstanding.set(inv.id, round2(out - knock));
+        gap = round2(gap - knock);
+        reconciled = round2(reconciled + knock);
+      }
+    }
+  }
+
   // Batch all invoice updates into a single SQL UPDATE ... FROM VALUES
   // statement. At 73-party scale with 30+ invoices per party this drops
   // us from ~2000 round-trips to 1 per party.
   type InvUpdate = { id: string; outstanding: number; status: "OPEN" | "PAID" };
   const invUpdates: InvUpdate[] = invoices.map((inv) => {
-    const allocated = totalByInvoice.get(inv.id) ?? 0;
-    const outstanding = round2(Math.max(0, Number(inv.originalAmount) - allocated));
+    const outstanding = invoiceOutstanding.get(inv.id) ?? 0;
     const status: "OPEN" | "PAID" = outstanding <= 0.01 ? "PAID" : "OPEN";
     return { id: inv.id, outstanding, status };
   });
