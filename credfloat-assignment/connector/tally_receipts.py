@@ -235,25 +235,45 @@ def fetch_receipts(
         if not date_iso:
             skipped_bad_date += 1
             continue
-        if not party_name:
-            skipped_no_party += 1
-            continue
         if not vch_num:
             # Synthesize a stable ref from date + party so conflict-on-upsert
             # works. Tally occasionally suppresses VoucherNumber on imported
             # vouchers — don't drop the row just because the ref is missing.
-            vch_num = f"rct-{date_iso}-{party_name}"
+            vch_num = f"rct-{date_iso}-{party_name or 'unknown'}"
 
-        # Find the party-ledger entry (the one whose LEDGERNAME matches
-        # PARTYLEDGERNAME). Its AMOUNT is the true receipt total.
-        total_amount = 0.0
-        bill_refs: list[BillRefAllocation] = []
+        # Emit one ReceiptRecord per debtor-side ledger entry. Previously
+        # we only captured PARTYLEDGERNAME — that missed receipt vouchers
+        # where PARTYLEDGERNAME is set to a bank/cash ledger but the
+        # voucher credits one or more debtor ledgers inside
+        # ALLLEDGERENTRIES. Those missed credits showed up as a
+        # discrepancy between Tally's ledger balance and our invoice
+        # residuals.
+        #
+        # A ledger entry counts as 'debtor-side' if it either:
+        #   - has BILLALLOCATIONS (definitive bill-wise tracking signal)
+        #   - OR matches PARTYLEDGERNAME (legacy — catches on-account
+        #     debtor receipts without bill-wise tracking)
+        debtor_entries = []
         for entry in voucher.iter("ALLLEDGERENTRIES.LIST"):
             ledger_name = (entry.findtext("LEDGERNAME") or "").strip()
-            if ledger_name != party_name:
+            if not ledger_name:
                 continue
-            total_amount = abs(_parse_amount(entry.findtext("AMOUNT")))
+            has_bill_allocs = entry.find("BILLALLOCATIONS.LIST") is not None
+            is_party_ledger = bool(party_name) and ledger_name == party_name
+            if has_bill_allocs or is_party_ledger:
+                debtor_entries.append((ledger_name, entry))
 
+        if not debtor_entries:
+            skipped_no_party += 1
+            continue
+
+        multi = len(debtor_entries) > 1
+        for ledger_name, entry in debtor_entries:
+            total_amount = abs(_parse_amount(entry.findtext("AMOUNT")))
+            if total_amount <= 0:
+                continue
+
+            bill_refs: list[BillRefAllocation] = []
             for alloc in entry.iter("BILLALLOCATIONS.LIST"):
                 bill_type = (alloc.findtext("BILLTYPE") or "").strip()
                 # "Agst Ref" = allocation to an existing bill. "New Ref" =
@@ -266,21 +286,24 @@ def fetch_receipts(
                 if not bill_ref or amt <= 0:
                     continue
                 bill_refs.append(BillRefAllocation(bill_ref=bill_ref, amount=amt))
-            break  # one party-ledger entry per voucher is enough
 
-        if total_amount <= 0:
-            continue
+            # For vouchers that credit multiple debtors, append the debtor
+            # name to voucher_ref so the DB unique constraint on
+            # (clientCompanyId, voucherRef) still de-duplicates correctly.
+            final_ref = vch_num
+            if multi:
+                final_ref = f"{vch_num}::{ledger_name[:40]}"
 
-        receipts.append(
-            ReceiptRecord(
-                company=company_name,
-                tally_ledger_name=party_name,
-                voucher_ref=vch_num,
-                receipt_date=date_iso,
-                amount=total_amount,
-                bill_refs=bill_refs,
+            receipts.append(
+                ReceiptRecord(
+                    company=company_name,
+                    tally_ledger_name=ledger_name,
+                    voucher_ref=final_ref,
+                    receipt_date=date_iso,
+                    amount=total_amount,
+                    bill_refs=bill_refs,
+                )
             )
-        )
 
     log.info(
         f"  Parsed {len(receipts)} receipts · "
