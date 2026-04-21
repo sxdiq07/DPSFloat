@@ -136,65 +136,6 @@
   }
 }
 
-/* -----------------------------------------------------------
-   Claude-theme preview — scoped token override.
-   Wrap a page in <div className="claude-theme"> to flip the
-   palette to Anthropic/Claude.ai's cream + coral + serif look
-   without touching any component. Serif display family comes
-   from --font-serif-display (loaded in layout.tsx).
-   ----------------------------------------------------------- */
-.claude-theme {
-  /* Paint the page surface so the preview shows its cream background
-     even though <body> has already rendered with the global token. */
-  background: #faf9f5;
-  color: #141413;
-  margin-left: calc(-1 * max(env(safe-area-inset-left), 0px));
-  margin-right: calc(-1 * max(env(safe-area-inset-right), 0px));
-  padding: 0.01px 0; /* collapses to zero but triggers bg paint */
-
-  /* Warm paper background */
-  --color-surface: #faf9f5;
-  --color-surface-2: #f2efe7;
-  --color-surface-3: #ffffff;
-
-  /* Warm off-black inks — softer than Apple's near-black */
-  --color-ink: #141413;
-  --color-ink-2: #3d3d3a;
-  --color-ink-3: #807e76;
-
-  /* Warm hair-borders */
-  --color-border-hair: #d9d5c9;
-  --color-border-subtle: #ebe7dc;
-
-  /* Coral / terracotta accent in place of Apple blue */
-  --color-accent-blue: #cc785c;
-  --color-accent-blue-hover: #b86247;
-  --color-accent-purple: #8d6e52;
-
-  /* Keep semantic status colors recognisable but warm them slightly */
-  --color-success: #4a8a4a;
-  --color-warning: #b8791d;
-  --color-danger: #c4483c;
-
-  --color-ring: var(--color-accent-blue);
-}
-
-/* Apply the serif to display headings only inside .claude-theme. Body
-   and tabular numbers stay on sans for legibility of financial data. */
-.claude-theme h1,
-.claude-theme h2,
-.claude-theme .serif-display {
-  font-family: var(--font-serif-display), "Iowan Old Style", "Charter",
-    "Georgia", serif;
-  letter-spacing: -0.012em;
-  font-weight: 400;
-}
-
-.claude-theme ::selection {
-  background: rgba(204, 120, 92, 0.22);
-  color: var(--color-ink);
-}
-
 @layer components {
   .card-apple {
     border-radius: 1rem;

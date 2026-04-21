@@ -197,7 +197,7 @@ export default async function OverviewPage() {
   const maxOutstanding = Math.max(1, ...topClientsRanked.map((c) => c.outstanding));
 
   return (
-    <div className="claude-theme space-y-14">
+    <div className="space-y-14">
       <PageHeader
         eyebrow="Firm overview"
         title="Receivables"
