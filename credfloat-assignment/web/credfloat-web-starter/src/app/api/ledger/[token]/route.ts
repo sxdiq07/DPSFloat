@@ -36,7 +36,27 @@ export async function GET(
     );
   }
 
-  const pdf = await renderLedgerPdf(statement);
+  let pdf: Buffer;
+  try {
+    pdf = await renderLedgerPdf(statement);
+  } catch (err) {
+    // @react-pdf/renderer can throw on bad fonts, missing package, or
+    // malformed data. Return JSON so the browser tab shows something
+    // useful instead of Next's default 500 HTML.
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[LEDGER_PDF_ERROR]", payload.partyId, msg);
+    return NextResponse.json(
+      {
+        error: "Failed to render ledger PDF",
+        detail: msg,
+        hint:
+          "Ensure `npm install` has been run so @react-pdf/renderer is present, " +
+          "and that the dev server was restarted after the install.",
+      },
+      { status: 500 },
+    );
+  }
+
   const filenameSafe = statement.party.name
     .replace(/[^A-Za-z0-9_-]+/g, "_")
     .slice(0, 60);

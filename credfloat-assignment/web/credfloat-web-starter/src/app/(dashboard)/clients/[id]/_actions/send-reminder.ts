@@ -111,18 +111,28 @@ export async function sendReminderNow(
         | Array<{ filename: string; content: Buffer }>
         | undefined;
       if (attachLedger) {
-        const statement = await buildLedgerStatement(invoice.partyId, period);
-        if (statement) {
-          const pdf = await renderLedgerPdf(statement);
-          const safeName = statement.party.name
-            .replace(/[^A-Za-z0-9_-]+/g, "_")
-            .slice(0, 50);
-          attachments = [
-            {
-              filename: `${safeName}_ledger_${statement.period.to}.pdf`,
-              content: pdf,
-            },
-          ];
+        try {
+          const statement = await buildLedgerStatement(invoice.partyId, period);
+          if (statement) {
+            const pdf = await renderLedgerPdf(statement);
+            const safeName = statement.party.name
+              .replace(/[^A-Za-z0-9_-]+/g, "_")
+              .slice(0, 50);
+            attachments = [
+              {
+                filename: `${safeName}_ledger_${statement.period.to}.pdf`,
+                content: pdf,
+              },
+            ];
+          }
+        } catch (err) {
+          // Don't block the email on a PDF failure — send reminder body
+          // anyway, log the render issue for follow-up.
+          console.error(
+            "[LEDGER_PDF_ERROR]",
+            invoice.partyId,
+            err instanceof Error ? err.message : String(err),
+          );
         }
       }
       const r = await sendReminderEmail({

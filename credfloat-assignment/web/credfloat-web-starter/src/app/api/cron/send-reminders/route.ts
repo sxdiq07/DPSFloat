@@ -124,16 +124,25 @@ export async function GET(req: NextRequest) {
               | undefined;
             if (attachLedger) {
               if (!ledgerPdf) {
-                const statement = await buildLedgerStatement(
-                  inv.partyId,
-                  period,
-                );
-                if (statement) {
-                  ledgerPdf = await renderLedgerPdf(statement);
-                  const safe = statement.party.name
-                    .replace(/[^A-Za-z0-9_-]+/g, "_")
-                    .slice(0, 50);
-                  ledgerFilename = `${safe}_ledger_${statement.period.to}.pdf`;
+                try {
+                  const statement = await buildLedgerStatement(
+                    inv.partyId,
+                    period,
+                  );
+                  if (statement) {
+                    ledgerPdf = await renderLedgerPdf(statement);
+                    const safe = statement.party.name
+                      .replace(/[^A-Za-z0-9_-]+/g, "_")
+                      .slice(0, 50);
+                    ledgerFilename = `${safe}_ledger_${statement.period.to}.pdf`;
+                  }
+                } catch (err) {
+                  // Preserve the email send — just skip the attachment.
+                  console.error(
+                    "[LEDGER_PDF_ERROR]",
+                    inv.partyId,
+                    err instanceof Error ? err.message : String(err),
+                  );
                 }
               }
               if (ledgerPdf && ledgerFilename) {
