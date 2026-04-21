@@ -1,8 +1,21 @@
 """
-Receipt voucher extraction via Tally XML HTTP.
+Debtor-credit voucher extraction via Tally XML HTTP.
 
-Pulls every RECEIPT voucher for a company along with its BILLALLOCATIONS
-(so we can honour Tally's own bill-wise set-off on the cloud side).
+Despite the module name (kept for backward compatibility) this pulls
+every voucher type that can REDUCE a debtor's ledger balance — Receipt,
+Journal, Credit Note, and Debit Note. Each gets the same BILLALLOCATIONS
+treatment so our cloud-side FIFO engine can mirror Tally's set-off.
+
+Why this matters: a Tally ledger balance can go down for reasons other
+than a straight Receipt. Credit notes (sales returns), bad-debt writeoffs
+posted via Journal, and year-end reclasses all reduce debtor balance at
+the ledger level. If we only synced Receipt vouchers, our invoice
+residuals would overstate what the debtor actually owes.
+
+We only keep entries whose signed AMOUNT is negative (i.e. the debtor
+is being credited). Positive-amount entries on a debtor ledger mean
+the journal is INCREASING the debt (e.g. interest charged) — we can't
+treat those as receipts without mis-applying them to existing bills.
 
 Observed Tally Prime 7.x schema:
 
@@ -86,9 +99,9 @@ RECEIPTS_TDL = """<ENVELOPE>
           <COLLECTION NAME="CredFloatReceiptVouchers" ISMODIFY="No">
             <TYPE>Voucher</TYPE>
             <FETCH>Date, VoucherTypeName, VoucherNumber, PartyLedgerName, Amount, AllLedgerEntries</FETCH>
-            <FILTERS>CredFloatIsReceipt</FILTERS>
+            <FILTERS>CredFloatReducesDebtor</FILTERS>
           </COLLECTION>
-          <SYSTEM TYPE="Formulae" NAME="CredFloatIsReceipt">$VoucherTypeName = "Receipt"</SYSTEM>
+          <SYSTEM TYPE="Formulae" NAME="CredFloatReducesDebtor">($VoucherTypeName = "Receipt") OR ($VoucherTypeName = "Journal") OR ($VoucherTypeName = "Credit Note") OR ($VoucherTypeName = "Debit Note")</SYSTEM>
         </TDLMESSAGE>
       </TDL>
     </DESC>
@@ -269,7 +282,15 @@ def fetch_receipts(
 
         multi = len(debtor_entries) > 1
         for ledger_name, entry in debtor_entries:
-            total_amount = abs(_parse_amount(entry.findtext("AMOUNT")))
+            raw_amount = _parse_amount(entry.findtext("AMOUNT"))
+            # Only process entries that REDUCE debtor balance.
+            # Convention: negative AMOUNT on a debtor ledger line =
+            # credit (reduces debt). Positive = debit (increases debt,
+            # e.g. interest charged via Journal) — those aren't
+            # receipt-like and must not be FIFO'd against existing bills.
+            if raw_amount >= 0:
+                continue
+            total_amount = abs(raw_amount)
             if total_amount <= 0:
                 continue
 
