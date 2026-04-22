@@ -19,9 +19,9 @@ export const authConfig = {
     },
     async session({ session, token }) {
       if (session.user) {
-        session.user.id = token.id;
-        session.user.firmId = token.firmId;
-        session.user.role = token.role;
+        session.user.id = token.id as string;
+        session.user.firmId = token.firmId as string;
+        session.user.role = token.role as "PARTNER" | "STAFF";
       }
       return session;
     },
@@ -34,14 +34,20 @@ export const authConfig = {
         pathname.startsWith("/api/sync") ||
         pathname.startsWith("/api/cron") ||
         pathname.startsWith("/api/auth") ||
+        pathname.startsWith("/api/webhooks/") ||
         pathname.startsWith("/portal/")
       ) {
         return true;
       }
 
-      // Login page
-      if (pathname.startsWith("/login")) {
-        if (isLoggedIn) return Response.redirect(new URL("/", nextUrl));
+      // Unauth-only routes (login + password reset flow)
+      if (
+        pathname.startsWith("/login") ||
+        pathname.startsWith("/forgot-password") ||
+        pathname.startsWith("/reset-password")
+      ) {
+        if (isLoggedIn && pathname.startsWith("/login"))
+          return Response.redirect(new URL("/", nextUrl));
         return true;
       }
 

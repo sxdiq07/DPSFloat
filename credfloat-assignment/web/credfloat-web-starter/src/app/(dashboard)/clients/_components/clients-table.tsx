@@ -447,17 +447,19 @@ export function ClientsTable({
                           <MoreHorizontal className="h-4 w-4" />
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem asChild>
-                            <Link href={`/clients/${c.id}`}>
-                              <ChevronRight className="h-3.5 w-3.5" />
-                              View detail
-                            </Link>
+                          <DropdownMenuItem
+                            onSelect={() => router.push(`/clients/${c.id}`)}
+                          >
+                            <ChevronRight className="h-3.5 w-3.5" />
+                            View detail
                           </DropdownMenuItem>
-                          <DropdownMenuItem asChild>
-                            <Link href={`/clients/${c.id}/reminders`}>
-                              <Play className="h-3.5 w-3.5" />
-                              Reminder settings
-                            </Link>
+                          <DropdownMenuItem
+                            onSelect={() =>
+                              router.push(`/clients/${c.id}/reminders`)
+                            }
+                          >
+                            <Play className="h-3.5 w-3.5" />
+                            Reminder settings
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           {c.status === "ACTIVE" ? (

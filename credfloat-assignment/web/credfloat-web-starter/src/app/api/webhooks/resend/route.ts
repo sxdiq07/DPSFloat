@@ -49,7 +49,13 @@ function verify(req: NextRequest, rawBody: string): boolean {
   // Allow unverified delivery in dev when no secret is set. This is
   // intentional — without a secret we have no way to check auth, but
   // the endpoint is still useful for local testing via `curl`.
-  if (!secret) return true;
+  if (!secret) {
+    console.warn(
+      "[resend-webhook] RESEND_WEBHOOK_SECRET not set — skipping signature check. " +
+        "Set it in production.",
+    );
+    return true;
+  }
 
   const id = req.headers.get("svix-id");
   const ts = req.headers.get("svix-timestamp");

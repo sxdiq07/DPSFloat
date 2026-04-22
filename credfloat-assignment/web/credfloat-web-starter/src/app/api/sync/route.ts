@@ -128,23 +128,28 @@ export async function POST(req: NextRequest) {
 
   // Batch company upserts in a single transaction.
   // Empty `update: {}` lets Prisma auto-touch `updatedAt` via @updatedAt.
+  // Interactive form is used so we can raise the timeout above Prisma's
+  // 5s default — Supabase's Mumbai pooler can stall on cold starts.
   const upsertedCompanies = await prisma.$transaction(
-    companies.map((c) =>
-      prisma.clientCompany.upsert({
-        where: {
-          firmId_tallyCompanyName: {
-            firmId: firm.id,
-            tallyCompanyName: c.tally_name,
-          },
-        },
-        create: {
-          firmId: firm.id,
-          tallyCompanyName: c.tally_name,
-          displayName: c.tally_name,
-        },
-        update: {},
-      }),
-    ),
+    async (tx) =>
+      Promise.all(
+        companies.map((c) =>
+          tx.clientCompany.upsert({
+            where: {
+              firmId_tallyCompanyName: {
+                firmId: firm.id,
+                tallyCompanyName: c.tally_name,
+              },
+            },
+            create: {
+              firmId: firm.id,
+              tallyCompanyName: c.tally_name,
+              displayName: c.tally_name,
+            },
+            update: {},
+          }),
+        ),
+      ),
     { timeout: 60_000 },
   );
   const companyNameToId = new Map<string, string>(

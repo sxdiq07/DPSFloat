@@ -39,7 +39,7 @@ export function signResetToken(params: {
 }): string {
   const ttl = params.ttlSeconds ?? 60 * 60; // 1h default
   const exp = Math.floor(Date.now() / 1000) + ttl;
-  const hashPrefix = params.currentHash.slice(0, 16);
+  const hashPrefix = params.currentHash.slice(0, 32);
   const body = `${b64urlEncode(params.userId)}.${exp}`;
   const sig = createHmac("sha256", secret())
     .update(`${body}.${hashPrefix}`)
@@ -58,7 +58,7 @@ export function verifyResetToken(
   const exp = Number(expStr);
   if (!Number.isFinite(exp) || exp < Math.floor(Date.now() / 1000)) return null;
 
-  const hashPrefix = currentHash.slice(0, 16);
+  const hashPrefix = currentHash.slice(0, 32);
   const expectedSig = createHmac("sha256", secret())
     .update(`${userIdB64}.${expStr}.${hashPrefix}`)
     .digest();
