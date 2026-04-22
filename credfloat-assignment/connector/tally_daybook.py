@@ -107,6 +107,12 @@ DAYBOOK_TDL = """<ENVELOPE>
 
 _INVALID_XML_RE = re.compile(rb"[\x00-\x08\x0B\x0C\x0E-\x1F]")
 _CHAR_REF_RE = re.compile(rb"&#([xX]?[0-9a-fA-F]+);")
+# Tally sometimes emits namespace-prefixed tags like `<UDF:NAME>` without
+# declaring the prefix. ElementTree aborts with "unbound prefix" the
+# moment it sees one. Strip the prefix by flattening `PREFIX:TAG` to
+# `PREFIX_TAG` for both opening and closing tags — preserves data, drops
+# the namespace baggage.
+_NS_PREFIX_RE = re.compile(rb"<(/?)([A-Za-z][A-Za-z0-9]*):([A-Za-z0-9_.-]+)")
 
 
 def _scrub_char_refs(raw: bytes) -> bytes:
@@ -205,6 +211,8 @@ def fetch_day_book(
 
     raw = _INVALID_XML_RE.sub(b" ", r.content)
     raw = _scrub_char_refs(raw)
+    # Flatten namespace-prefixed tags — see _NS_PREFIX_RE comment.
+    raw = _NS_PREFIX_RE.sub(rb"<\1\2_\3", raw)
 
     if os.getenv("TALLY_DEBUG_DUMP", "false").lower() == "true":
         safe_name = re.sub(r"[^A-Za-z0-9_-]", "_", company_name)[:40]
