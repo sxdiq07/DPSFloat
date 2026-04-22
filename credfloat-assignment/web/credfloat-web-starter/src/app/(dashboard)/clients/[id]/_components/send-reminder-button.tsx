@@ -97,7 +97,13 @@ export function SendReminderButton({
   const dispatch = (channel: "EMAIL" | "WHATSAPP") => {
     setOpen(false);
     startPending(async () => {
-      const r = await sendReminderNow({ invoiceId, channel });
+      // Quick-send path — always include the "Pay us" block. Staff who
+      // want to edit or skip the block open the Preview modal instead.
+      const r = await sendReminderNow({
+        invoiceId,
+        channel,
+        includePayBlock: true,
+      });
       if (!r.ok) {
         toast.error(r.error);
         return;

@@ -5,7 +5,17 @@ export type LogInput = {
   firmId: string;
   actorId?: string | null;
   action: string;
-  targetType: "ClientCompany" | "Party" | "Invoice" | "ReminderRule" | "FirmStaff" | "PortalToken" | "PromiseToPay" | "Note";
+  targetType:
+    | "ClientCompany"
+    | "Party"
+    | "Invoice"
+    | "ReminderRule"
+    | "ReminderSent"
+    | "FirmStaff"
+    | "Firm"
+    | "PortalToken"
+    | "PromiseToPay"
+    | "Note";
   targetId: string;
   meta?: Prisma.InputJsonValue;
 };
