@@ -25,7 +25,7 @@ export default async function DashboardLayout({
       orderBy: { displayName: "asc" },
     }),
     prisma.party.findFirst({
-      where: { clientCompany: { firmId } },
+      where: { clientCompany: { firmId }, deletedAt: null },
       orderBy: { lastSyncedAt: "desc" },
       select: { lastSyncedAt: true },
     }),

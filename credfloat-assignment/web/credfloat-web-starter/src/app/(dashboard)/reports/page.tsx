@@ -42,7 +42,7 @@ export default async function ReportsPage() {
   ] = await Promise.all([
     prisma.invoice.groupBy({
       by: ["ageBucket"],
-      where: { clientCompany: { firmId }, status: "OPEN" },
+      where: { clientCompany: { firmId }, status: "OPEN", deletedAt: null },
       _sum: { outstandingAmount: true },
     }),
     prisma.receipt.findMany({

@@ -47,6 +47,8 @@ export async function previewReminder(
     where: {
       id: parsed.data.invoiceId,
       clientCompany: { firmId },
+      deletedAt: null,
+      party: { deletedAt: null },
     },
     include: {
       party: true,

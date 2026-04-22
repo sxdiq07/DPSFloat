@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getISTToday } from "@/lib/ageing";
 import { formatINR, formatINRCompact } from "@/lib/currency";
 import { Resend } from "resend";
+import { recordCronRun } from "@/lib/cron";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -17,6 +18,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const outcome = await recordCronRun("morning-brief", async () => {
   const today = getISTToday();
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
@@ -51,7 +53,11 @@ export async function GET(req: NextRequest) {
       top,
     ] = await Promise.all([
       prisma.invoice.aggregate({
-        where: { clientCompany: { firmId: firm.id }, status: "OPEN" },
+        where: {
+          clientCompany: { firmId: firm.id },
+          status: "OPEN",
+          deletedAt: null,
+        },
         _sum: { outstandingAmount: true },
       }),
       prisma.invoice.aggregate({
@@ -59,6 +65,7 @@ export async function GET(req: NextRequest) {
           clientCompany: { firmId: firm.id },
           status: "OPEN",
           ageBucket: "DAYS_90_PLUS",
+          deletedAt: null,
         },
         _sum: { outstandingAmount: true },
       }),
@@ -68,6 +75,7 @@ export async function GET(req: NextRequest) {
           status: "OPEN",
           ageBucket: "DAYS_90_PLUS",
           updatedAt: { gte: yesterday },
+          deletedAt: null,
         },
       }),
       prisma.reminderSent.count({
@@ -98,6 +106,7 @@ export async function GET(req: NextRequest) {
           clientCompany: { firmId: firm.id },
           status: "OPEN",
           ageBucket: { in: ["DAYS_60_90", "DAYS_90_PLUS"] },
+          deletedAt: null,
         },
         _sum: { outstandingAmount: true },
         orderBy: { _sum: { outstandingAmount: "desc" } },
@@ -178,8 +187,15 @@ export async function GET(req: NextRequest) {
     summaries.push({ firmId: firm.id, sent, failed });
   }
 
+    const totalSent = summaries.reduce((a, b) => a + b.sent, 0);
+    return { rowsAffected: totalSent, meta: { summaries } };
+  });
+
+  const meta = (outcome.meta ?? {}) as {
+    summaries?: Array<{ firmId: string; sent: number; failed: number }>;
+  };
   return NextResponse.json({
-    summaries,
+    summaries: meta.summaries ?? [],
     timestamp: new Date().toISOString(),
   });
 }

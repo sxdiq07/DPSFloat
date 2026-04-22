@@ -18,9 +18,11 @@ export default async function SettingsPage() {
       orderBy: [{ role: "asc" }, { createdAt: "asc" }],
     }),
     prisma.clientCompany.count({ where: { firmId } }),
-    prisma.party.count({ where: { clientCompany: { firmId } } }),
+    prisma.party.count({
+      where: { clientCompany: { firmId }, deletedAt: null },
+    }),
     prisma.party.findFirst({
-      where: { clientCompany: { firmId } },
+      where: { clientCompany: { firmId }, deletedAt: null },
       orderBy: { lastSyncedAt: "desc" },
       select: { lastSyncedAt: true },
     }),

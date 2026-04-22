@@ -28,7 +28,11 @@ export async function getLedgerDownloadUrl(
   const firmId = await requireFirmId();
 
   const party = await prisma.party.findFirst({
-    where: { id: parsed.data.partyId, clientCompany: { firmId } },
+    where: {
+      id: parsed.data.partyId,
+      clientCompany: { firmId },
+      deletedAt: null,
+    },
     include: {
       clientCompany: {
         include: {

@@ -8,6 +8,7 @@ import { buildLedgerStatement } from "@/lib/ledger-data";
 import { renderLedgerPdf } from "@/lib/ledger-pdf";
 import { signLedgerToken, type LedgerPeriod } from "@/lib/ledger-token";
 import type { LedgerPeriodType } from "@prisma/client";
+import { recordCronRun } from "@/lib/cron";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -19,7 +20,12 @@ export async function GET(req: NextRequest) {
   }
 
   // Don't dispatch reminders on major Indian holidays — reads as tone-deaf.
+  // Recorded as a CronRun so "why was nothing sent today?" is answerable.
   if (isIndianHoliday()) {
+    await recordCronRun("send-reminders", async () => ({
+      rowsAffected: 0,
+      meta: { skipped: "holiday", istDate: todayISTString() },
+    }));
     return NextResponse.json({
       sent: 0,
       failed: 0,
@@ -29,6 +35,7 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  const outcome = await recordCronRun("send-reminders", async () => {
   const today = getISTToday();
   const startOfToday = today;
 
@@ -62,7 +69,8 @@ export async function GET(req: NextRequest) {
         status: "OPEN",
         outstandingAmount: { gt: 0 },
         dueDate: { not: null },
-        party: { optedOut: false },
+        deletedAt: null,
+        party: { optedOut: false, deletedAt: null },
       },
       include: { party: true },
     });
@@ -226,10 +234,21 @@ export async function GET(req: NextRequest) {
     }
   }
 
+    return {
+      rowsAffected: sent,
+      meta: { sent, failed, errors: errors.slice(0, 20) },
+    };
+  });
+
+  const meta = (outcome.meta ?? {}) as {
+    sent?: number;
+    failed?: number;
+    errors?: string[];
+  };
   return NextResponse.json({
-    sent,
-    failed,
-    errors: errors.slice(0, 20),
+    sent: meta.sent ?? 0,
+    failed: meta.failed ?? 0,
+    errors: meta.errors ?? [],
     timestamp: new Date().toISOString(),
   });
 }

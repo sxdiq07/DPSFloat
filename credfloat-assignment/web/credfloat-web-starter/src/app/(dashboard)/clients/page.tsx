@@ -60,7 +60,11 @@ export default async function ClientsPage({
     // balances (the actual money owed to each firm client).
     prisma.party.groupBy({
       by: ["clientCompanyId"],
-      where: { clientCompanyId: { in: ids }, closingBalance: { gt: 0 } },
+      where: {
+        clientCompanyId: { in: ids },
+        closingBalance: { gt: 0 },
+        deletedAt: null,
+      },
       _sum: { closingBalance: true },
     }),
     // 60-90 / 90+ overdue slice stays invoice-based — those buckets
@@ -71,6 +75,7 @@ export default async function ClientsPage({
         clientCompanyId: { in: ids },
         status: "OPEN",
         ageBucket: { in: ["DAYS_60_90", "DAYS_90_PLUS"] },
+        deletedAt: null,
       },
       _sum: { outstandingAmount: true },
     }),

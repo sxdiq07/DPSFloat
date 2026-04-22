@@ -12,6 +12,11 @@ const schema = z.object({
   reason: z.string().max(200).optional().nullable(),
 });
 
+const archiveSchema = z.object({
+  partyId: z.string(),
+  archive: z.boolean(),
+});
+
 /**
  * Batch action on a selected set of debtors from the client detail
  * page. `optedOut: true` takes them out of the cron reminder scope
@@ -35,6 +40,7 @@ export async function bulkDebtorAction(
     where: {
       id: { in: parsed.data.partyIds },
       clientCompany: { firmId },
+      deletedAt: null,
     },
     select: { id: true, clientCompanyId: true, tallyLedgerName: true },
   });
@@ -78,4 +84,44 @@ export async function bulkDebtorAction(
   for (const cid of touchedClientIds) revalidatePath(`/clients/${cid}`);
 
   return { ok: true, affected: parties.length };
+}
+
+/**
+ * Soft-archive or unarchive a single debtor. Hidden from every
+ * user-facing read once archived; row stays for audit + Tally
+ * reconciliation. Safe to toggle — does not touch invoices or
+ * ledger history.
+ */
+export async function archiveParty(
+  input: z.infer<typeof archiveSchema>,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const parsed = archiveSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Invalid input" };
+
+  const session = await requireAuth();
+  const firmId = await requireFirmId();
+
+  // Find regardless of deletedAt state — we need to toggle either way.
+  const party = await prisma.party.findFirst({
+    where: { id: parsed.data.partyId, clientCompany: { firmId } },
+    select: { id: true, clientCompanyId: true, tallyLedgerName: true },
+  });
+  if (!party) return { ok: false, error: "Debtor not found" };
+
+  await prisma.party.update({
+    where: { id: party.id },
+    data: { deletedAt: parsed.data.archive ? new Date() : null },
+  });
+
+  await logActivity({
+    firmId,
+    actorId: session.user.id,
+    action: parsed.data.archive ? "party.archived" : "party.unarchived",
+    targetType: "Party",
+    targetId: party.id,
+    meta: { ledgerName: party.tallyLedgerName },
+  });
+
+  revalidatePath(`/clients/${party.clientCompanyId}`);
+  return { ok: true };
 }

@@ -145,6 +145,10 @@ model Party {
   optedOut        Boolean        @default(false)
   optedOutReason  String?
 
+  // Soft-delete. Set when staff archives a debtor; all read paths
+  // filter it out, but the row stays for audit + Tally reconciliation.
+  deletedAt       DateTime?
+
   invoices        Invoice[]
   receipts        Receipt[]
   ledgerEntries   LedgerEntry[]
@@ -159,6 +163,7 @@ model Party {
   @@unique([clientCompanyId, tallyLedgerName])
   @@index([clientCompanyId])
   @@index([optedOut])
+  @@index([deletedAt])
 }
 
 // -------------------------------------------------------------------
@@ -180,6 +185,10 @@ model Invoice {
   status            InvoiceStatus  @default(OPEN)
   ageBucket         AgeBucket      @default(CURRENT) // recomputed daily
 
+  // Soft-delete. Tally sync sets this when a bill disappears upstream,
+  // preserving audit continuity instead of hard-deleting the row.
+  deletedAt         DateTime?
+
   remindersSent     ReminderSent[]
   allocations       ReceiptAllocation[]
 
@@ -192,6 +201,7 @@ model Invoice {
   @@index([partyId])
   @@index([ageBucket])
   @@index([dueDate])
+  @@index([deletedAt])
 }
 
 enum InvoiceStatus {
@@ -489,4 +499,30 @@ enum VoucherType {
   DEBIT_NOTE
   STOCK_JOURNAL
   OTHER
+}
+
+// -------------------------------------------------------------------
+// CronRun — one row per background-job invocation. Powers the Jobs
+// health tile on the Overview so partners can eyeball "did the
+// morning batch actually run?" without reading Vercel logs.
+// -------------------------------------------------------------------
+model CronRun {
+  id            String       @id @default(cuid())
+  job           String       // "compute-ageing" | "morning-brief" | "send-reminders"
+  startedAt     DateTime     @default(now())
+  completedAt   DateTime?
+  status        CronStatus   @default(RUNNING)
+  rowsAffected  Int          @default(0)
+  durationMs    Int?
+  error         String?
+  meta          Json?
+
+  @@index([job, startedAt])
+  @@index([status])
+}
+
+enum CronStatus {
+  RUNNING
+  OK
+  FAILED
 }

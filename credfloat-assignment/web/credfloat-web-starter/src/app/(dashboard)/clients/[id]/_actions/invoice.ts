@@ -27,7 +27,11 @@ export async function setInvoiceDispute(
     const session = await requireAuth();
     const firmId = await requireFirmId();
     const invoice = await prisma.invoice.findFirst({
-      where: { id: parsed.data.invoiceId, clientCompany: { firmId } },
+      where: {
+        id: parsed.data.invoiceId,
+        clientCompany: { firmId },
+        deletedAt: null,
+      },
       select: { id: true, status: true, clientCompanyId: true, billRef: true },
     });
     if (!invoice) return { ok: false, error: "Invoice not found" };
@@ -73,7 +77,11 @@ export async function markInvoicePaid(
     const session = await requireAuth();
     const firmId = await requireFirmId();
     const invoice = await prisma.invoice.findFirst({
-      where: { id: parsed.data.invoiceId, clientCompany: { firmId } },
+      where: {
+        id: parsed.data.invoiceId,
+        clientCompany: { firmId },
+        deletedAt: null,
+      },
       select: {
         id: true,
         clientCompanyId: true,

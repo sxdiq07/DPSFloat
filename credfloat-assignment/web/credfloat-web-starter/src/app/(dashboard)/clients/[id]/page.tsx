@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatCard } from "@/components/ui/stat-card";
 import { ExportDebtorsButton } from "./_components/export-debtors-button";
+import { ArchiveDebtorButton } from "./_components/archive-debtor-button";
 import { NotesTimeline, type TimelineEvent } from "./_components/notes-timeline";
 import { PromisesPanel, type PromiseRow } from "./_components/promises-panel";
 import { computeReliability, reliabilityTone } from "@/lib/reliability";
@@ -39,6 +40,7 @@ export default async function ClientDetailPage({
     where: { id, firmId },
     include: {
       parties: {
+        where: { deletedAt: null },
         // Sorted in JS below by actual *due* (post-FIFO invoice) outstanding,
         // not gross closingBalance — the ledger balance can include advances,
         // credit notes, and journal adjustments unrelated to open bills.
@@ -47,7 +49,11 @@ export default async function ClientDetailPage({
         },
       },
       invoices: {
-        where: { status: "OPEN" },
+        where: {
+          status: "OPEN",
+          deletedAt: null,
+          party: { deletedAt: null },
+        },
         include: { party: true },
         orderBy: [{ ageBucket: "desc" }, { dueDate: "asc" }],
       },
@@ -472,6 +478,10 @@ export default async function ClientDetailPage({
                               <BookOpen className="h-3 w-3" />
                             </Link>
                             <DownloadLedgerButton partyId={p.id} />
+                            <ArchiveDebtorButton
+                              partyId={p.id}
+                              partyName={p.mailingName || p.tallyLedgerName}
+                            />
                           </div>
                         </td>
                       </tr>

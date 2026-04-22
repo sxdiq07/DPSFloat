@@ -57,12 +57,21 @@ export default async function OverviewPage() {
     // and journal adjustment Tally knows about. Invoice-level sums can
     // diverge when receipts landed on non-debtor ledgers we didn't sync.
     prisma.party.aggregate({
-      where: { clientCompany: { firmId }, closingBalance: { gt: 0 } },
+      where: {
+        clientCompany: { firmId },
+        closingBalance: { gt: 0 },
+        deletedAt: null,
+      },
       _sum: { closingBalance: true },
     }),
     // 90+ bucket stays invoice-based — ageing only exists at bill level.
     prisma.invoice.aggregate({
-      where: { clientCompany: { firmId }, status: "OPEN", ageBucket: "DAYS_90_PLUS" },
+      where: {
+        clientCompany: { firmId },
+        status: "OPEN",
+        ageBucket: "DAYS_90_PLUS",
+        deletedAt: null,
+      },
       _sum: { outstandingAmount: true },
     }),
     (async () => {
@@ -86,7 +95,7 @@ export default async function OverviewPage() {
     })(),
     prisma.invoice.groupBy({
       by: ["ageBucket"],
-      where: { clientCompany: { firmId }, status: "OPEN" },
+      where: { clientCompany: { firmId }, status: "OPEN", deletedAt: null },
       _sum: { outstandingAmount: true },
     }),
     // Top clients by actual due — sum of debtors' positive ledger
@@ -95,7 +104,11 @@ export default async function OverviewPage() {
     // used for the firm-level total.
     prisma.party.groupBy({
       by: ["clientCompanyId"],
-      where: { clientCompany: { firmId }, closingBalance: { gt: 0 } },
+      where: {
+        clientCompany: { firmId },
+        closingBalance: { gt: 0 },
+        deletedAt: null,
+      },
       _sum: { closingBalance: true },
       orderBy: { _sum: { closingBalance: "desc" } },
       take: 10,
@@ -106,10 +119,13 @@ export default async function OverviewPage() {
         clientCompany: { firmId },
         status: "OPEN",
         ageBucket: { in: ["DAYS_60_90", "DAYS_90_PLUS"] },
+        deletedAt: null,
       },
       _sum: { outstandingAmount: true },
     }),
-    prisma.party.count({ where: { clientCompany: { firmId } } }),
+    prisma.party.count({
+      where: { clientCompany: { firmId }, deletedAt: null },
+    }),
     prisma.clientCompany.count({ where: { firmId } }),
   ]);
 
@@ -120,6 +136,7 @@ export default async function OverviewPage() {
     where: {
       clientCompany: { firmId },
       closingBalance: { gt: 0 },
+      deletedAt: null,
     },
     select: {
       id: true,
@@ -142,10 +159,12 @@ export default async function OverviewPage() {
   ).slice(0, 10);
 
   // Secondary queries for the storytelling section
-  const [reachableCount, lastSync, brokenPromiseCounts] = await Promise.all([
+  const [reachableCount, lastSync, brokenPromiseCounts, cronRuns] =
+    await Promise.all([
     prisma.party.count({
       where: {
         clientCompany: { firmId },
+        deletedAt: null,
         OR: [
           { email: { not: null } },
           { phone: { not: null } },
@@ -154,7 +173,7 @@ export default async function OverviewPage() {
       },
     }),
     prisma.party.findFirst({
-      where: { clientCompany: { firmId } },
+      where: { clientCompany: { firmId }, deletedAt: null },
       orderBy: { lastSyncedAt: "desc" },
       select: { lastSyncedAt: true },
     }),
@@ -166,6 +185,22 @@ export default async function OverviewPage() {
         status: "BROKEN",
       },
       _count: { _all: true },
+    }),
+    // Latest run per cron job (limit 20, then dedupe below to keep
+    // the query cheap — avoids a DISTINCT ON).
+    prisma.cronRun.findMany({
+      orderBy: { startedAt: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        job: true,
+        startedAt: true,
+        completedAt: true,
+        status: true,
+        rowsAffected: true,
+        durationMs: true,
+        error: true,
+      },
     }),
   ]);
 
@@ -182,8 +217,13 @@ export default async function OverviewPage() {
       : await prisma.party.findMany({
           where: {
             id: { in: atRiskPartyIds },
+            deletedAt: null,
             invoices: {
-              some: { status: "OPEN", ageBucket: "DAYS_90_PLUS" },
+              some: {
+                status: "OPEN",
+                ageBucket: "DAYS_90_PLUS",
+                deletedAt: null,
+              },
             },
           },
           select: {
@@ -209,6 +249,20 @@ export default async function OverviewPage() {
   const totalOutstanding = Number(totalOutstandingAgg._sum.closingBalance ?? 0);
   const overdue90 = Number(overdue90Agg._sum.outstandingAmount ?? 0);
   const collectionsThisMonth = Number(collectionsAgg._sum.amount ?? 0);
+
+  // Latest run per job — cronRuns is pre-sorted desc by startedAt so
+  // first occurrence of each job name wins.
+  const jobOrder: Array<{ id: string; label: string }> = [
+    { id: "send-reminders", label: "Reminder dispatch" },
+    { id: "morning-brief", label: "Morning brief" },
+    { id: "compute-ageing", label: "Ageing refresh" },
+  ];
+  const latestByJob = new Map<string, (typeof cronRuns)[number]>();
+  for (const r of cronRuns) if (!latestByJob.has(r.job)) latestByJob.set(r.job, r);
+  const jobRows = jobOrder.map((j) => ({
+    ...j,
+    run: latestByJob.get(j.id) ?? null,
+  }));
 
   const ageingData = AGE_BUCKETS_ORDER.map((bucket) => ({
     key: bucket,
@@ -517,6 +571,79 @@ export default async function OverviewPage() {
             })}
           </div>
         )}
+      </section>
+
+      {/* Jobs health — ops tile, last run per background job */}
+      <section className="card-apple overflow-hidden">
+        <div className="px-10 pt-8 pb-5">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3">
+            Infrastructure
+          </p>
+          <h2 className="mt-2 text-[22px] font-semibold tracking-tight text-ink">
+            Background jobs
+          </h2>
+          <p className="mt-1 max-w-2xl text-[14px] text-ink-3">
+            Confirms every scheduled job is running. If a row shows FAILED
+            or a stale timestamp, the cron hasn&apos;t reached Ledger today.
+          </p>
+        </div>
+        <div className="border-t border-subtle divide-y divide-subtle">
+          {jobRows.map((j) => {
+            const r = j.run;
+            const tone = !r
+              ? { label: "NEVER RUN", color: "#86868b", bg: "rgba(134,134,139,0.08)" }
+              : r.status === "OK"
+                ? { label: "OK", color: "#1f7a4a", bg: "rgba(48,209,88,0.10)" }
+                : r.status === "FAILED"
+                  ? { label: "FAILED", color: "#c6373a", bg: "rgba(255,69,58,0.08)" }
+                  : { label: "RUNNING", color: "#0057b7", bg: "rgba(0,113,227,0.08)" };
+            return (
+              <div
+                key={j.id}
+                className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-6 px-10 py-4"
+              >
+                <div className="min-w-0">
+                  <div className="text-[15px] font-medium text-ink">
+                    {j.label}
+                  </div>
+                  <div className="text-[11.5px] text-ink-3">{j.id}</div>
+                </div>
+                <span
+                  className="pill tabular"
+                  style={{ background: tone.bg, color: tone.color }}
+                >
+                  {tone.label}
+                </span>
+                <div className="tabular text-right text-[13px] text-ink-3">
+                  {r
+                    ? formatDistanceToNow(r.startedAt, { addSuffix: true })
+                    : "—"}
+                </div>
+                <div className="tabular text-right text-[12px] text-ink-3 min-w-[120px]">
+                  {r && r.status === "OK" && (
+                    <>
+                      {r.rowsAffected} row{r.rowsAffected === 1 ? "" : "s"}
+                      {r.durationMs != null && (
+                        <span className="ml-2 text-ink-3/70">
+                          · {(r.durationMs / 1000).toFixed(1)}s
+                        </span>
+                      )}
+                    </>
+                  )}
+                  {r?.status === "FAILED" && r.error && (
+                    <span
+                      className="truncate block max-w-[200px]"
+                      title={r.error}
+                      style={{ color: "#c6373a" }}
+                    >
+                      {r.error.split("\n")[0].slice(0, 60)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </section>
     </div>
   );

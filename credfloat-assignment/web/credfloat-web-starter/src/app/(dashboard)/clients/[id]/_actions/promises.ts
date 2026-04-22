@@ -22,7 +22,11 @@ export async function addPromise(
     const session = await requireAuth();
     const firmId = await requireFirmId();
     const party = await prisma.party.findFirst({
-      where: { id: parsed.data.partyId, clientCompany: { firmId } },
+      where: {
+        id: parsed.data.partyId,
+        clientCompany: { firmId },
+        deletedAt: null,
+      },
       select: { id: true, clientCompanyId: true },
     });
     if (!party) return { ok: false, error: "Debtor not found" };

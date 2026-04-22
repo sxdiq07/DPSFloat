@@ -58,7 +58,11 @@ export default async function DebtorLedgerPage({
   if (!client) notFound();
 
   const party = await prisma.party.findFirst({
-    where: { id: partyId, clientCompany: { id: client.id } },
+    where: {
+      id: partyId,
+      clientCompany: { id: client.id },
+      deletedAt: null,
+    },
     select: { id: true, tallyLedgerName: true, mailingName: true },
   });
   if (!party) notFound();
