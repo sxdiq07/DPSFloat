@@ -173,6 +173,7 @@ export default async function DebtorLedgerPage({
             <thead>
               <tr className="border-b border-subtle text-[10.5px] uppercase tracking-[0.08em] text-ink-3">
                 <th className="px-6 py-3 text-left font-medium">Date</th>
+                <th className="px-6 py-3 text-left font-medium">Type</th>
                 <th className="px-6 py-3 text-left font-medium">Voucher</th>
                 <th className="px-6 py-3 text-left font-medium">Particulars</th>
                 <th className="px-6 py-3 text-right font-medium">Debit</th>
@@ -182,6 +183,7 @@ export default async function DebtorLedgerPage({
             </thead>
             <tbody>
               <tr className="border-b border-subtle bg-[var(--color-surface-2)]/40">
+                <td className="px-6 py-3 text-ink-3">—</td>
                 <td className="px-6 py-3 text-ink-3">—</td>
                 <td className="px-6 py-3 text-ink-3">—</td>
                 <td className="px-6 py-3 font-medium text-ink-2">
@@ -201,6 +203,9 @@ export default async function DebtorLedgerPage({
                   <td className="tabular px-6 py-3 text-ink-3">
                     {formatInTimeZone(r.date, "Asia/Kolkata", "dd MMM yyyy")}
                   </td>
+                  <td className="px-6 py-3 text-ink-3">
+                    {r.voucherType}
+                  </td>
                   <td className="px-6 py-3 font-medium text-ink-2">
                     {r.voucher}
                   </td>
@@ -217,6 +222,7 @@ export default async function DebtorLedgerPage({
                 </tr>
               ))}
               <tr className="border-t-2 border-[var(--color-border-hair)] bg-[var(--color-surface-2)]/40">
+                <td className="px-6 py-3"></td>
                 <td className="px-6 py-3"></td>
                 <td className="px-6 py-3"></td>
                 <td className="px-6 py-3 font-semibold text-ink">

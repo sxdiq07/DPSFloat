@@ -95,6 +95,7 @@ model ClientCompany {
   reminderRules  ReminderRule[]
   notes          Note[]
   portalTokens   PortalToken[]
+  ledgerEntries  LedgerEntry[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -130,6 +131,11 @@ model Party {
   // Outstanding balance from latest sync
   closingBalance  Decimal        @db.Decimal(15, 2)
 
+  // Opening balance carried forward from prior FY — from Tally's
+  // Ledger master (ODBC $OpeningBalance). Drives the drill-down's
+  // "Opening balance" row so our numbers match Tally's day book.
+  openingBalance  Decimal        @db.Decimal(15, 2) @default(0)
+
   // Net unallocated receipts (excess payments not yet applied to any bill).
   // Maintained by the allocation engine on each sync; positive when the
   // debtor has paid more than the sum of their current open bills.
@@ -141,6 +147,7 @@ model Party {
 
   invoices        Invoice[]
   receipts        Receipt[]
+  ledgerEntries   LedgerEntry[]
   remindersSent   ReminderSent[]
   notes           Note[]
   promises        PromiseToPay[]
@@ -432,4 +439,54 @@ model PortalToken {
 
   @@index([clientCompanyId])
   @@index([token])
+}
+
+// -------------------------------------------------------------------
+// LedgerEntry — full Tally Day Book, one row per voucher-line that
+// touches a debtor ledger. Drives the drill-down view so every
+// number matches Tally 1:1 (opening balance + running balance).
+// -------------------------------------------------------------------
+model LedgerEntry {
+  id              String        @id @default(cuid())
+  party           Party         @relation(fields: [partyId], references: [id], onDelete: Cascade)
+  partyId         String
+  clientCompany   ClientCompany @relation(fields: [clientCompanyId], references: [id], onDelete: Cascade)
+  clientCompanyId String
+
+  voucherDate     DateTime
+  voucherType     VoucherType
+  voucherRef      String        // Tally VoucherNumber (or synthesized)
+  // Other side of the entry — "TAXABLE @ 18% SALE", "INDUSIND BANK", etc.
+  // Empty string (not null) so the unique key below treats two entries
+  // with no counterparty as colliding rows, preventing duplicates.
+  counterparty    String        @default("")
+  narration       String?
+
+  /** Rupees. Only one of debit/credit is non-zero per row. */
+  debit           Decimal       @db.Decimal(15, 2) @default(0)
+  credit          Decimal       @db.Decimal(15, 2) @default(0)
+
+  lastSyncedAt    DateTime
+  createdAt       DateTime      @default(now())
+
+  // One voucher can touch the same party multiple times (split bills).
+  // Uniqueness: (company, voucher, type, party, counterparty) — tight
+  // enough to dedupe across syncs without collapsing split entries.
+  @@unique([clientCompanyId, voucherRef, voucherType, partyId, counterparty])
+  @@index([partyId, voucherDate])
+  @@index([clientCompanyId, voucherDate])
+  @@index([voucherType])
+}
+
+enum VoucherType {
+  SALES
+  PURCHASE
+  RECEIPT
+  PAYMENT
+  JOURNAL
+  CONTRA
+  CREDIT_NOTE
+  DEBIT_NOTE
+  STOCK_JOURNAL
+  OTHER
 }

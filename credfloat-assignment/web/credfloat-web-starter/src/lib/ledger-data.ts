@@ -4,12 +4,14 @@ import { resolvePeriod } from "@/lib/ledger-token";
 
 /**
  * One transaction row as it appears in a Tally-style ledger statement.
- * Debit increases debtor balance (sale), credit reduces it (receipt /
- * credit note). Running balance = running total of debit − credit.
+ * Debit increases debtor balance (sale / debit-note), credit reduces
+ * it (receipt / credit-note / journal-cr). Running balance = opening
+ * + cumulative (debit - credit) through this row.
  */
 export type LedgerRow = {
   date: Date;
   voucher: string;
+  voucherType: string;
   particulars: string;
   debit: number;
   credit: number;
@@ -37,6 +39,14 @@ export type LedgerStatement = {
   totals: { debit: number; credit: number };
   generatedAt: Date;
 };
+
+/** Prettifies enum to title-case for display. */
+function voucherTypeLabel(t: string): string {
+  return t
+    .split("_")
+    .map((w) => w.charAt(0) + w.slice(1).toLowerCase())
+    .join(" ");
+}
 
 export async function buildLedgerStatement(
   partyId: string,
@@ -69,110 +79,112 @@ export async function buildLedgerStatement(
   const { start, end, label } = resolvePeriod(period);
   const isOpenOnly = period.type === "OPEN_ITEMS_ONLY";
 
-  const invoiceWhere = isOpenOnly
-    ? { partyId, status: "OPEN" as const, outstandingAmount: { gt: 0 } }
-    : {
+  // OPEN_ITEMS_ONLY keeps the old bill-level view (invoices with
+  // outstanding > 0 as debit rows). Every other period draws from the
+  // full LedgerEntry table so the drill-down matches Tally 1:1.
+  if (isOpenOnly) {
+    const invoices = await prisma.invoice.findMany({
+      where: {
         partyId,
-        ...(start ? { billDate: { gte: start, lte: end } } : { billDate: { lte: end } }),
-      };
-
-  const receiptWhere = isOpenOnly
-    ? { partyId, id: "__never__" } // no receipts in open-only mode
-    : {
-        partyId,
-        ...(start
-          ? { receiptDate: { gte: start, lte: end } }
-          : { receiptDate: { lte: end } }),
-      };
-
-  const [invoices, receipts, priorInvoices, priorReceipts] = await Promise.all([
-    prisma.invoice.findMany({
-      where: invoiceWhere,
+        status: "OPEN",
+        outstandingAmount: { gt: 0 },
+      },
       orderBy: { billDate: "asc" },
-      select: {
-        billRef: true,
-        billDate: true,
-        originalAmount: true,
-        outstandingAmount: true,
-        status: true,
-      },
-    }),
-    prisma.receipt.findMany({
-      where: receiptWhere,
-      orderBy: { receiptDate: "asc" },
-      select: {
-        voucherRef: true,
-        receiptDate: true,
-        amount: true,
-      },
-    }),
-    start
-      ? prisma.invoice.aggregate({
-          where: { partyId, billDate: { lt: start } },
-          _sum: { originalAmount: true },
-        })
-      : Promise.resolve(null),
-    start
-      ? prisma.receipt.aggregate({
-          where: { partyId, receiptDate: { lt: start } },
-          _sum: { amount: true },
-        })
-      : Promise.resolve(null),
-  ]);
-
-  const openingBalance = start
-    ? Number(priorInvoices?._sum.originalAmount ?? 0) -
-      Number(priorReceipts?._sum.amount ?? 0)
-    : 0;
-
-  const rows: LedgerRow[] = [];
-  let running = openingBalance;
-  let totalDebit = 0;
-  let totalCredit = 0;
-
-  type Entry =
-    | { kind: "inv"; date: Date; ref: string; amt: number }
-    | { kind: "rec"; date: Date; ref: string; amt: number };
-  const merged: Entry[] = [
-    ...invoices.map<Entry>((i) => ({
-      kind: "inv",
-      date: i.billDate,
-      ref: i.billRef,
-      amt: Number(i.originalAmount),
-    })),
-    ...receipts.map<Entry>((r) => ({
-      kind: "rec",
-      date: r.receiptDate,
-      ref: r.voucherRef,
-      amt: Number(r.amount),
-    })),
-  ].sort((a, b) => a.date.getTime() - b.date.getTime());
-
-  for (const e of merged) {
-    if (e.kind === "inv") {
-      running += e.amt;
-      totalDebit += e.amt;
+      select: { billRef: true, billDate: true, outstandingAmount: true },
+    });
+    const rows: LedgerRow[] = [];
+    let running = 0;
+    let totalDebit = 0;
+    for (const i of invoices) {
+      const amt = Number(i.outstandingAmount);
+      running += amt;
+      totalDebit += amt;
       rows.push({
-        date: e.date,
-        voucher: e.ref,
-        particulars: `Sales — bill ${e.ref}`,
-        debit: e.amt,
+        date: i.billDate,
+        voucher: i.billRef,
+        voucherType: "Sales",
+        particulars: `Open bill ${i.billRef}`,
+        debit: amt,
         credit: 0,
         runningBalance: running,
       });
-    } else {
-      running -= e.amt;
-      totalCredit += e.amt;
-      rows.push({
-        date: e.date,
-        voucher: e.ref,
-        particulars: `Receipt — voucher ${e.ref}`,
-        debit: 0,
-        credit: e.amt,
-        runningBalance: running,
-      });
     }
+    return {
+      firm: party.clientCompany.firm,
+      clientCompany: {
+        displayName: party.clientCompany.displayName,
+        tallyCompanyName: party.clientCompany.tallyCompanyName,
+      },
+      party: {
+        name: party.mailingName || party.tallyLedgerName,
+        address: party.address,
+      },
+      period: { from: "—", to: end.toISOString().slice(0, 10), label },
+      openingBalance: 0,
+      rows,
+      closingBalance: running,
+      totals: { debit: totalDebit, credit: 0 },
+      generatedAt: new Date(),
+    };
   }
+
+  // Day-book-based view — pull entries from LedgerEntry, ordered by date.
+  const entries = await prisma.ledgerEntry.findMany({
+    where: {
+      partyId,
+      ...(start
+        ? { voucherDate: { gte: start, lte: end } }
+        : { voucherDate: { lte: end } }),
+    },
+    orderBy: [{ voucherDate: "asc" }, { voucherRef: "asc" }],
+    select: {
+      voucherDate: true,
+      voucherType: true,
+      voucherRef: true,
+      counterparty: true,
+      narration: true,
+      debit: true,
+      credit: true,
+    },
+  });
+
+  // Opening balance. If the period doesn't have a lower bound (all
+  // history), opening = Party.openingBalance (Tally's carry-forward).
+  // If there's a lower bound, opening = Tally carry-forward + sum of
+  // entries BEFORE the window.
+  let openingBalance = Number(party.openingBalance ?? 0);
+  if (start) {
+    const priorAgg = await prisma.ledgerEntry.aggregate({
+      where: { partyId, voucherDate: { lt: start } },
+      _sum: { debit: true, credit: true },
+    });
+    const priorDebit = Number(priorAgg._sum.debit ?? 0);
+    const priorCredit = Number(priorAgg._sum.credit ?? 0);
+    openingBalance += priorDebit - priorCredit;
+  }
+
+  let running = openingBalance;
+  let totalDebit = 0;
+  let totalCredit = 0;
+  const rows: LedgerRow[] = entries.map((e) => {
+    const d = Number(e.debit);
+    const c = Number(e.credit);
+    running += d - c;
+    totalDebit += d;
+    totalCredit += c;
+    const counter = e.counterparty || "—";
+    return {
+      date: e.voucherDate,
+      voucher: e.voucherRef,
+      voucherType: voucherTypeLabel(e.voucherType),
+      particulars: e.narration?.trim()
+        ? `${counter} · ${e.narration.trim()}`
+        : counter,
+      debit: d,
+      credit: c,
+      runningBalance: running,
+    };
+  });
 
   return {
     firm: party.clientCompany.firm,

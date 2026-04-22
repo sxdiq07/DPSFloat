@@ -12,11 +12,35 @@ const partySchema = z.object({
   tally_ledger_name: z.string().min(1),
   parent_group: z.string(),
   closing_balance: z.number(),
+  opening_balance: z.number().optional().default(0),
   mailing_name: z.string().nullable().optional(),
   address: z.string().nullable().optional(),
   phone: z.string().nullable().optional(),
   email: z.string().nullable().optional(),
   whatsapp_number: z.string().nullable().optional(),
+});
+
+const ledgerEntrySchema = z.object({
+  company: z.string().min(1),
+  tally_ledger_name: z.string().min(1),
+  voucher_date: z.string().min(1),
+  voucher_type: z.enum([
+    "SALES",
+    "PURCHASE",
+    "RECEIPT",
+    "PAYMENT",
+    "JOURNAL",
+    "CONTRA",
+    "CREDIT_NOTE",
+    "DEBIT_NOTE",
+    "STOCK_JOURNAL",
+    "OTHER",
+  ]),
+  voucher_ref: z.string().min(1),
+  counterparty: z.string().optional().default(""),
+  narration: z.string().nullable().optional(),
+  debit: z.number(),
+  credit: z.number(),
 });
 
 const invoiceSchema = z.object({
@@ -50,6 +74,7 @@ const syncSchema = z.object({
   parties: z.array(partySchema),
   invoices: z.array(invoiceSchema).optional().default([]),
   receipts: z.array(receiptSchema).optional().default([]),
+  day_book: z.array(ledgerEntrySchema).optional().default([]),
 });
 
 export async function POST(req: NextRequest) {
@@ -81,7 +106,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { synced_at, companies, parties, invoices, receipts } = parsed.data;
+  const { synced_at, companies, parties, invoices, receipts, day_book } = parsed.data;
   const syncedAt = new Date(synced_at);
 
   // Prefer the explicit SEED_FIRM_ID env var (stable across renames); fall
@@ -145,6 +170,7 @@ export async function POST(req: NextRequest) {
     email: string | null;
     whatsappNumber: string | null;
     closingBalance: number;
+    openingBalance: number;
   };
   const rows: PartyRow[] = [];
   for (const p of parties) {
@@ -164,6 +190,7 @@ export async function POST(req: NextRequest) {
       email: p.email ?? null,
       whatsappNumber: p.whatsapp_number ?? null,
       closingBalance: p.closing_balance,
+      openingBalance: p.opening_balance ?? 0,
     });
     partyCount++;
   }
@@ -182,6 +209,7 @@ export async function POST(req: NextRequest) {
         ${r.email},
         ${r.whatsappNumber},
         ${r.closingBalance},
+        ${r.openingBalance},
         ${syncedAt},
         NOW(),
         NOW()
@@ -199,6 +227,7 @@ export async function POST(req: NextRequest) {
         "email",
         "whatsappNumber",
         "closingBalance",
+        "openingBalance",
         "lastSyncedAt",
         "createdAt",
         "updatedAt"
@@ -207,6 +236,7 @@ export async function POST(req: NextRequest) {
       ON CONFLICT ("clientCompanyId", "tallyLedgerName") DO UPDATE SET
         "parentGroup" = EXCLUDED."parentGroup",
         "closingBalance" = EXCLUDED."closingBalance",
+        "openingBalance" = EXCLUDED."openingBalance",
         "mailingName" = COALESCE(EXCLUDED."mailingName", "Party"."mailingName"),
         "address" = COALESCE(EXCLUDED."address", "Party"."address"),
         "phone" = COALESCE(EXCLUDED."phone", "Party"."phone"),
@@ -597,6 +627,117 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // --- Day Book upsert ---
+  // Dedup-and-bulk-insert the LedgerEntry rows. Unique index
+  // (clientCompanyId, voucherRef, voucherType, partyId, counterparty)
+  // makes the upsert idempotent — a second sync with the same entries
+  // becomes a no-op UPDATE.
+  let ledgerEntryCount = 0;
+  let ledgerEntrySkipped = 0;
+  if (day_book.length > 0) {
+    const companyIds = [...companyNameToId.values()];
+    const allParties = await prisma.party.findMany({
+      where: { clientCompanyId: { in: companyIds } },
+      select: { id: true, clientCompanyId: true, tallyLedgerName: true },
+    });
+    const partyIdByKey = new Map(
+      allParties.map((p) => [
+        `${p.clientCompanyId}::${p.tallyLedgerName}`,
+        p.id,
+      ]),
+    );
+
+    type LedgerRow = {
+      id: string;
+      partyId: string;
+      clientCompanyId: string;
+      voucherDate: Date;
+      voucherType: string;
+      voucherRef: string;
+      counterparty: string;
+      narration: string | null;
+      debit: number;
+      credit: number;
+    };
+    // Dedup in-memory on the same key the DB unique index uses — prevents
+    // "ON CONFLICT cannot affect the same row twice" when Tally exports
+    // the same entry more than once in a single voucher listing.
+    const byKey = new Map<string, LedgerRow>();
+    for (const e of day_book) {
+      const companyId = companyNameToId.get(e.company);
+      if (!companyId) {
+        ledgerEntrySkipped++;
+        continue;
+      }
+      const partyId = partyIdByKey.get(
+        `${companyId}::${e.tally_ledger_name}`,
+      );
+      if (!partyId) {
+        ledgerEntrySkipped++;
+        continue;
+      }
+      const key = `${companyId}::${e.voucher_ref}::${e.voucher_type}::${partyId}::${e.counterparty ?? ""}`;
+      byKey.set(key, {
+        id: randomUUID(),
+        partyId,
+        clientCompanyId: companyId,
+        voucherDate: new Date(e.voucher_date),
+        voucherType: e.voucher_type,
+        voucherRef: e.voucher_ref,
+        counterparty: e.counterparty ?? "",
+        narration: e.narration ?? null,
+        debit: e.debit,
+        credit: e.credit,
+      });
+    }
+    const ledgerRows = [...byKey.values()];
+    ledgerEntryCount = ledgerRows.length;
+
+    for (let i = 0; i < ledgerRows.length; i += CHUNK) {
+      const chunk = ledgerRows.slice(i, i + CHUNK);
+      const values = chunk.map(
+        (r) => Prisma.sql`(
+          ${r.id},
+          ${r.partyId},
+          ${r.clientCompanyId},
+          ${r.voucherDate},
+          ${r.voucherType}::"VoucherType",
+          ${r.voucherRef},
+          ${r.counterparty},
+          ${r.narration},
+          ${r.debit},
+          ${r.credit},
+          ${syncedAt},
+          NOW()
+        )`,
+      );
+      await prisma.$executeRaw`
+        INSERT INTO "LedgerEntry" (
+          "id",
+          "partyId",
+          "clientCompanyId",
+          "voucherDate",
+          "voucherType",
+          "voucherRef",
+          "counterparty",
+          "narration",
+          "debit",
+          "credit",
+          "lastSyncedAt",
+          "createdAt"
+        )
+        VALUES ${Prisma.join(values, ",")}
+        ON CONFLICT ("clientCompanyId", "voucherRef", "voucherType", "partyId", "counterparty")
+        DO UPDATE SET
+          "voucherDate" = EXCLUDED."voucherDate",
+          "narration" = EXCLUDED."narration",
+          "debit" = EXCLUDED."debit",
+          "credit" = EXCLUDED."credit",
+          "lastSyncedAt" = EXCLUDED."lastSyncedAt"
+      `;
+    }
+  }
+
   const durationMs = Date.now() - startedAt;
 
   return NextResponse.json({
@@ -605,7 +746,9 @@ export async function POST(req: NextRequest) {
       parties: partyCount,
       invoices: invoiceCount,
       receipts: receiptCount,
-      skipped: skipped + invoiceSkipped + receiptSkipped,
+      ledgerEntries: ledgerEntryCount,
+      skipped:
+        skipped + invoiceSkipped + receiptSkipped + ledgerEntrySkipped,
       allocation: {
         partiesProcessed: dirtyPartyIds.size,
         invoicesUpdated: allocInvoicesTouched,

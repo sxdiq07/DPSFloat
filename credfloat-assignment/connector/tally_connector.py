@@ -34,6 +34,7 @@ from dotenv import load_dotenv
 
 from tally_invoices import fetch_bill_wise_outstanding, InvoiceRecord
 from tally_receipts import fetch_receipts, ReceiptRecord
+from tally_daybook import fetch_day_book, LedgerEntryRecord
 
 load_dotenv()
 
@@ -45,6 +46,7 @@ TALLY_HTTP_URL = os.getenv("TALLY_HTTP_URL", "http://localhost:9000")
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 SKIP_INVOICES = os.getenv("SKIP_INVOICES", "false").lower() == "true"
 SKIP_RECEIPTS = os.getenv("SKIP_RECEIPTS", "false").lower() == "true"
+SKIP_DAYBOOK = os.getenv("SKIP_DAYBOOK", "false").lower() == "true"
 
 # --- Logging ---
 logging.basicConfig(
@@ -67,6 +69,7 @@ class PartyRecord:
     tally_ledger_name: str
     parent_group: str
     closing_balance: float
+    opening_balance: float = 0.0
     # Contact fields depend on your Tally ODBC schema.
     # Run TallyReader.inspect_ledger_columns() on first run to see what's exposed.
     mailing_name: Optional[str] = None
@@ -83,6 +86,7 @@ class SyncPayload:
     parties: list = field(default_factory=list)
     invoices: list = field(default_factory=list)
     receipts: list = field(default_factory=list)
+    day_book: list = field(default_factory=list)
 
 
 # --- Tally ODBC Reader ---
@@ -145,7 +149,7 @@ class TallyReader:
         cur = self.conn.cursor()
         cur.execute(
             """
-            SELECT $Name, $Parent, $ClosingBalance,
+            SELECT $Name, $Parent, $ClosingBalance, $OpeningBalance,
                    $EMail, $LedgerMobile, $LedgerPhone, $LedgerContact,
                    $_Address1, $_Address2, $_Address3, $_Address4, $_Address5
             FROM Ledger
@@ -155,13 +159,14 @@ class TallyReader:
         parties = []
         for row in cur.fetchall():
             (
-                name, parent, closing,
+                name, parent, closing, opening,
                 email, mobile, phone_landline, phone_contact,
                 addr1, addr2, addr3, addr4, addr5,
             ) = row
             # Tally convention: debtor balance is negative when party owes us.
             # Flip sign so downstream "positive = outstanding" logic is intuitive.
             outstanding = -float(closing or 0)
+            opening_bal = -float(opening or 0)
             # Concatenate address lines, skipping blanks
             address = "\n".join(
                 line.strip() for line in (addr1, addr2, addr3, addr4, addr5)
@@ -173,6 +178,7 @@ class TallyReader:
                     tally_ledger_name=name or "",
                     parent_group=parent or "",
                     closing_balance=outstanding,
+                    opening_balance=opening_bal,
                     address=address,
                     email=(email or None) and str(email).strip() or None,
                     phone=(phone_landline or phone_contact or None) and
@@ -228,6 +234,7 @@ def main():
         all_parties = []
         all_invoices: list[InvoiceRecord] = []
         all_receipts: list[ReceiptRecord] = []
+        all_daybook: list[LedgerEntryRecord] = []
         for c in companies:
             # V1: reads only from the active company. Multi-company iteration
             # requires SELECT COMPANY via Tally XML (Phase 2).
@@ -256,17 +263,33 @@ def main():
                 log.info(f"  {c.tally_name}: {len(receipts)} receipts")
                 all_receipts.extend(receipts)
 
+            # Full Day Book — every voucher type — for drill-down parity
+            # with Tally. Limited to the subset of ledger entries that
+            # touch this company's known debtors.
+            if not SKIP_DAYBOOK:
+                debtor_names = {p.tally_ledger_name for p in parties}
+                entries = fetch_day_book(
+                    c.tally_name,
+                    debtor_names,
+                    tally_url=TALLY_HTTP_URL,
+                )
+                log.info(
+                    f"  {c.tally_name}: {len(entries)} day-book entries"
+                )
+                all_daybook.extend(entries)
+
         payload = SyncPayload(
             synced_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             companies=[asdict(c) for c in companies],
             parties=[asdict(p) for p in all_parties],
             invoices=[asdict(i) for i in all_invoices],
             receipts=[asdict(r) for r in all_receipts],
+            day_book=[asdict(d) for d in all_daybook],
         )
         log.info(
             f"Prepared sync: {len(payload.companies)} companies, "
             f"{len(payload.parties)} parties, {len(payload.invoices)} invoices, "
-            f"{len(payload.receipts)} receipts."
+            f"{len(payload.receipts)} receipts, {len(payload.day_book)} day-book entries."
         )
         push_to_api(payload)
 
