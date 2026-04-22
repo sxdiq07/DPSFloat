@@ -10,6 +10,11 @@ type Props = {
   frn: string | null;
   partnerName: string | null;
   partnerMno: string | null;
+  bankName: string | null;
+  bankAccountName: string | null;
+  bankAccountNumber: string | null;
+  bankIfsc: string | null;
+  upiId: string | null;
   canManage: boolean;
 };
 
@@ -18,17 +23,32 @@ export function FirmLetterhead({
   frn,
   partnerName,
   partnerMno,
+  bankName,
+  bankAccountName,
+  bankAccountNumber,
+  bankIfsc,
+  upiId,
   canManage,
 }: Props) {
   const [frnValue, setFrn] = useState(frn ?? "");
   const [partnerValue, setPartner] = useState(partnerName ?? "");
   const [mnoValue, setMno] = useState(partnerMno ?? "");
+  const [bankNameV, setBankName] = useState(bankName ?? "");
+  const [bankAccName, setBankAccName] = useState(bankAccountName ?? "");
+  const [bankAccNo, setBankAccNo] = useState(bankAccountNumber ?? "");
+  const [ifsc, setIfsc] = useState(bankIfsc ?? "");
+  const [upi, setUpi] = useState(upiId ?? "");
   const [pending, startPending] = useTransition();
 
   const dirty =
     frnValue !== (frn ?? "") ||
     partnerValue !== (partnerName ?? "") ||
-    mnoValue !== (partnerMno ?? "");
+    mnoValue !== (partnerMno ?? "") ||
+    bankNameV !== (bankName ?? "") ||
+    bankAccName !== (bankAccountName ?? "") ||
+    bankAccNo !== (bankAccountNumber ?? "") ||
+    ifsc !== (bankIfsc ?? "") ||
+    upi !== (upiId ?? "");
 
   const onSave = () => {
     startPending(async () => {
@@ -36,6 +56,11 @@ export function FirmLetterhead({
         frn: frnValue,
         partnerName: partnerValue,
         partnerMno: mnoValue,
+        bankName: bankNameV,
+        bankAccountName: bankAccName,
+        bankAccountNumber: bankAccNo,
+        bankIfsc: ifsc,
+        upiId: upi,
       });
       if (!r.ok) {
         toast.error(r.error);
@@ -95,6 +120,52 @@ export function FirmLetterhead({
           disabled={!canManage}
           help="Membership number shown under the partner name."
         />
+      </div>
+
+      <div className="mt-8 border-t border-subtle pt-6">
+        <h3 className="text-[14px] font-semibold text-ink">Bank + UPI (for "Pay us" block)</h3>
+        <p className="mt-1 text-[12.5px] text-ink-3">
+          Shown inside every reminder email and ledger PDF so debtors can
+          pay inline. UPI id generates a scan-to-pay QR automatically.
+        </p>
+        <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-2">
+          <Field
+            label="Bank name"
+            value={bankNameV}
+            onChange={setBankName}
+            placeholder="e.g. HDFC Bank"
+            disabled={!canManage}
+          />
+          <Field
+            label="Account name (beneficiary)"
+            value={bankAccName}
+            onChange={setBankAccName}
+            placeholder="e.g. DPS & Co"
+            disabled={!canManage}
+          />
+          <Field
+            label="Account number"
+            value={bankAccNo}
+            onChange={setBankAccNo}
+            placeholder="e.g. 5021 2345 6789"
+            disabled={!canManage}
+          />
+          <Field
+            label="IFSC"
+            value={ifsc}
+            onChange={setIfsc}
+            placeholder="e.g. HDFC0001234"
+            disabled={!canManage}
+          />
+          <Field
+            label="UPI id (VPA)"
+            value={upi}
+            onChange={setUpi}
+            placeholder="e.g. dpsandco@hdfcbank"
+            disabled={!canManage}
+            help="Drives the scan-to-pay QR on every reminder + PDF."
+          />
+        </div>
       </div>
 
       {canManage && (

@@ -20,6 +20,12 @@ const FIRM_FRN = "002543N";
 const FIRM_PARTNER_NAME = "CA Mohammed Rashid";
 const FIRM_PARTNER_MNO = "438291";
 
+const FIRM_BANK_NAME = "HDFC Bank";
+const FIRM_BANK_ACCOUNT_NAME = "DPS & Co";
+const FIRM_BANK_ACCOUNT_NUMBER = "50200012345678";
+const FIRM_BANK_IFSC = "HDFC0001234";
+const FIRM_UPI_ID = "dpsandco@hdfcbank";
+
 async function main() {
   console.log("Demo-setup starting…\n");
 
@@ -30,12 +36,19 @@ async function main() {
       frn: FIRM_FRN,
       partnerName: FIRM_PARTNER_NAME,
       partnerMno: FIRM_PARTNER_MNO,
+      bankName: FIRM_BANK_NAME,
+      bankAccountName: FIRM_BANK_ACCOUNT_NAME,
+      bankAccountNumber: FIRM_BANK_ACCOUNT_NUMBER,
+      bankIfsc: FIRM_BANK_IFSC,
+      upiId: FIRM_UPI_ID,
     },
   });
   console.log(`✓ Firm letterhead updated on ${firm.name}`);
   console.log(`  FRN           : ${firm.frn}`);
   console.log(`  Partner name  : ${firm.partnerName}`);
-  console.log(`  Partner M.No. : ${firm.partnerMno}\n`);
+  console.log(`  Partner M.No. : ${firm.partnerMno}`);
+  console.log(`  Bank          : ${firm.bankName} · A/c ${firm.bankAccountNumber} · IFSC ${firm.bankIfsc}`);
+  console.log(`  UPI           : ${firm.upiId}\n`);
 
   // 2. Demo debtor. The Send button only appears on invoice rows whose
   // party has email or whatsapp on file, so we target parties that

@@ -38,7 +38,13 @@ export async function GET(
 
   let pdf: Buffer;
   try {
-    pdf = await renderLedgerPdf(statement);
+    pdf = await renderLedgerPdf(statement, {
+      bankName: statement.firm.bankName,
+      bankAccountName: statement.firm.bankAccountName,
+      bankAccountNumber: statement.firm.bankAccountNumber,
+      bankIfsc: statement.firm.bankIfsc,
+      upiId: statement.firm.upiId,
+    });
   } catch (err) {
     // @react-pdf/renderer can throw on bad fonts, missing package, or
     // malformed data. Return JSON so the browser tab shows something

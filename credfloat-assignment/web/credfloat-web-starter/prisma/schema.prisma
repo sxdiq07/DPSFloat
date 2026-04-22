@@ -39,6 +39,15 @@ model Firm {
   partnerName     String?
   partnerMno      String?
 
+  // Bank + UPI details rendered on the reminder email and the ledger
+  // PDF so the debtor can pay in-line instead of hunting for account
+  // info. UPI VPA drives a QR (upi://pay?pa=...&pn=...&am=...).
+  bankName            String?
+  bankAccountName     String?
+  bankAccountNumber   String?
+  bankIfsc            String?
+  upiId               String?
+
   staff           FirmStaff[]
   clientCompanies ClientCompany[]
 }

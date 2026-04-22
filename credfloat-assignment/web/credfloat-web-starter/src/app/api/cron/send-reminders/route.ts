@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
       clientCompany: { status: "ACTIVE" },
     },
     include: {
-      clientCompany: true,
+      clientCompany: { include: { firm: true } },
     },
   });
 
@@ -130,7 +130,13 @@ export async function GET(req: NextRequest) {
                     period,
                   );
                   if (statement) {
-                    ledgerPdf = await renderLedgerPdf(statement);
+                    ledgerPdf = await renderLedgerPdf(statement, {
+                      bankName: statement.firm.bankName,
+                      bankAccountName: statement.firm.bankAccountName,
+                      bankAccountNumber: statement.firm.bankAccountNumber,
+                      bankIfsc: statement.firm.bankIfsc,
+                      upiId: statement.firm.upiId,
+                    });
                     const safe = statement.party.name
                       .replace(/[^A-Za-z0-9_-]+/g, "_")
                       .slice(0, 50);
@@ -151,11 +157,20 @@ export async function GET(req: NextRequest) {
                 ];
               }
             }
+            const firm = rule.clientCompany.firm;
             const r = await sendReminderEmail({
               to: inv.party.email,
               template: selectTemplate(overdue),
               vars,
               attachments,
+              payment: {
+                bankName: firm.bankName,
+                bankAccountName: firm.bankAccountName,
+                bankAccountNumber: firm.bankAccountNumber,
+                bankIfsc: firm.bankIfsc,
+                upiId: firm.upiId,
+                payeeName: firm.name,
+              },
             });
             providerId = r.id;
           } else if (

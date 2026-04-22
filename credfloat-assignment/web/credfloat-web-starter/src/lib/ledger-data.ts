@@ -17,7 +17,17 @@ export type LedgerRow = {
 };
 
 export type LedgerStatement = {
-  firm: { name: string; frn: string | null; partnerName: string | null; partnerMno: string | null };
+  firm: {
+    name: string;
+    frn: string | null;
+    partnerName: string | null;
+    partnerMno: string | null;
+    bankName: string | null;
+    bankAccountName: string | null;
+    bankAccountNumber: string | null;
+    bankIfsc: string | null;
+    upiId: string | null;
+  };
   clientCompany: { displayName: string; tallyCompanyName: string };
   party: { name: string; address: string | null };
   period: { from: string; to: string; label: string };
@@ -43,6 +53,11 @@ export async function buildLedgerStatement(
               frn: true,
               partnerName: true,
               partnerMno: true,
+              bankName: true,
+              bankAccountName: true,
+              bankAccountNumber: true,
+              bankIfsc: true,
+              upiId: true,
             },
           },
         },

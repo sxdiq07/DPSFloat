@@ -114,7 +114,13 @@ export async function sendReminderNow(
         try {
           const statement = await buildLedgerStatement(invoice.partyId, period);
           if (statement) {
-            const pdf = await renderLedgerPdf(statement);
+            const pdf = await renderLedgerPdf(statement, {
+              bankName: statement.firm.bankName,
+              bankAccountName: statement.firm.bankAccountName,
+              bankAccountNumber: statement.firm.bankAccountNumber,
+              bankIfsc: statement.firm.bankIfsc,
+              upiId: statement.firm.upiId,
+            });
             const safeName = statement.party.name
               .replace(/[^A-Za-z0-9_-]+/g, "_")
               .slice(0, 50);
@@ -135,11 +141,34 @@ export async function sendReminderNow(
           );
         }
       }
+      // Fetch firm bank details once to render the "Pay us" block in
+      // the email body. Same Prisma Firm row that drives the PDF.
+      const firm = await prisma.firm.findUnique({
+        where: { id: firmId },
+        select: {
+          name: true,
+          bankName: true,
+          bankAccountName: true,
+          bankAccountNumber: true,
+          bankIfsc: true,
+          upiId: true,
+        },
+      });
       const r = await sendReminderEmail({
         to: invoice.party.email,
         template: selectTemplate(overdue),
         vars,
         attachments,
+        payment: firm
+          ? {
+              bankName: firm.bankName,
+              bankAccountName: firm.bankAccountName,
+              bankAccountNumber: firm.bankAccountNumber,
+              bankIfsc: firm.bankIfsc,
+              upiId: firm.upiId,
+              payeeName: firm.name,
+            }
+          : undefined,
       });
       await prisma.reminderSent.create({
         data: {

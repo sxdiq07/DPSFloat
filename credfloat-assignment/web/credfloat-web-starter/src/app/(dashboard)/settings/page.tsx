@@ -86,6 +86,11 @@ export default async function SettingsPage() {
         frn={firm?.frn ?? null}
         partnerName={firm?.partnerName ?? null}
         partnerMno={firm?.partnerMno ?? null}
+        bankName={firm?.bankName ?? null}
+        bankAccountName={firm?.bankAccountName ?? null}
+        bankAccountNumber={firm?.bankAccountNumber ?? null}
+        bankIfsc={firm?.bankIfsc ?? null}
+        upiId={firm?.upiId ?? null}
         canManage={canManage}
       />
 

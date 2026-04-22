@@ -10,6 +10,11 @@ const schema = z.object({
   frn: z.string().max(40).nullable(),
   partnerName: z.string().max(120).nullable(),
   partnerMno: z.string().max(40).nullable(),
+  bankName: z.string().max(120).nullable(),
+  bankAccountName: z.string().max(120).nullable(),
+  bankAccountNumber: z.string().max(40).nullable(),
+  bankIfsc: z.string().max(20).nullable(),
+  upiId: z.string().max(80).nullable(),
 });
 
 export type FirmUpdateResult =
@@ -36,6 +41,11 @@ export async function updateFirmLetterhead(
     frn: input.frn?.trim() || null,
     partnerName: input.partnerName?.trim() || null,
     partnerMno: input.partnerMno?.trim() || null,
+    bankName: input.bankName?.trim() || null,
+    bankAccountName: input.bankAccountName?.trim() || null,
+    bankAccountNumber: input.bankAccountNumber?.trim() || null,
+    bankIfsc: input.bankIfsc?.trim() || null,
+    upiId: input.upiId?.trim() || null,
   });
   if (!parsed.success) return { ok: false, error: "Invalid input" };
 

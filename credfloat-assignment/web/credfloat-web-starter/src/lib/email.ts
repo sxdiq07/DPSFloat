@@ -1,6 +1,7 @@
 import { Resend } from "resend";
 import { formatINR } from "@/lib/currency";
 import { formatInTimeZone } from "date-fns-tz";
+import { buildUpiQr } from "@/lib/upi-qr";
 
 const resend = process.env.RESEND_API_KEY
   ? new Resend(process.env.RESEND_API_KEY)
@@ -17,6 +18,16 @@ export interface ReminderVars {
   amount: number;
   daysOverdue: number;
   contactEmail?: string;
+}
+
+export interface PaymentDetails {
+  bankName?: string | null;
+  bankAccountName?: string | null;
+  bankAccountNumber?: string | null;
+  bankIfsc?: string | null;
+  upiId?: string | null;
+  /** Firm / payee name for the UPI intent — usually the firm name. */
+  payeeName?: string | null;
 }
 
 /**
@@ -160,6 +171,70 @@ ${body}
 }
 
 /**
+ * Render the "Pay us" block that drops into the email body when the
+ * firm has bank / UPI details on file. QR code is generated inline
+ * and embedded as a data URL so no external image hosting is needed.
+ */
+async function renderPaymentBlock(
+  payment: PaymentDetails,
+  amount: number,
+  note: string,
+): Promise<string> {
+  const hasBank =
+    Boolean(payment.bankName) ||
+    Boolean(payment.bankAccountNumber) ||
+    Boolean(payment.bankIfsc);
+  const hasUpi = Boolean(payment.upiId);
+  if (!hasBank && !hasUpi) return "";
+
+  const bankRows: string[] = [];
+  if (payment.bankName) bankRows.push(row("Bank", payment.bankName));
+  if (payment.bankAccountName)
+    bankRows.push(row("Account name", payment.bankAccountName));
+  if (payment.bankAccountNumber)
+    bankRows.push(row("Account number", payment.bankAccountNumber));
+  if (payment.bankIfsc) bankRows.push(row("IFSC", payment.bankIfsc));
+  if (payment.upiId) bankRows.push(row("UPI", payment.upiId));
+
+  let qrHtml = "";
+  if (hasUpi && payment.upiId) {
+    try {
+      const { dataUrl } = await buildUpiQr(
+        {
+          vpa: payment.upiId,
+          payeeName: payment.payeeName ?? "CredFloat",
+          amount: amount > 0 ? amount : undefined,
+          note,
+        },
+        180,
+      );
+      qrHtml = `<td style="vertical-align:top;padding-left:16px;width:150px;text-align:center">
+        <img src="${dataUrl}" alt="UPI QR" width="150" height="150" style="display:block;margin:0 auto"/>
+        <div style="font-size:10px;color:#888;margin-top:4px">Scan any UPI app</div>
+      </td>`;
+    } catch {
+      qrHtml = "";
+    }
+  }
+
+  return `
+<div style="margin:22px 0 16px;border:1px solid #dedede;border-radius:8px;padding:14px 18px;background:#fafafa">
+  <div style="font-weight:600;font-size:13px;color:#333;margin-bottom:8px">Pay us</div>
+  <table style="border-collapse:collapse;width:100%"><tr>
+    <td style="vertical-align:top"><table style="border-collapse:collapse">${bankRows.join("")}</table></td>
+    ${qrHtml}
+  </tr></table>
+</div>`;
+}
+
+function row(k: string, v: string): string {
+  return `<tr>
+    <td style="padding:4px 14px 4px 0;color:#777;font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">${escape(k)}</td>
+    <td style="padding:4px 0;font-size:13px;font-weight:500;color:#222">${escape(v)}</td>
+  </tr>`;
+}
+
+/**
  * Send a reminder email. Returns provider message ID on success.
  * If RESEND_API_KEY is not configured, logs to console and returns a
  * stub ID (useful for demos). Attachments, when provided, are passed
@@ -170,8 +245,34 @@ export async function sendReminderEmail(args: {
   template: ReminderTemplate;
   vars: ReminderVars;
   attachments?: Array<{ filename: string; content: Buffer }>;
+  /** Bank + UPI details that render as a "Pay us" block inside the email. */
+  payment?: PaymentDetails;
 }): Promise<{ id: string; stubbed?: boolean }> {
   const rendered = renderTemplate(args.template, args.vars);
+
+  // Inject the "Pay us" block just before the sign-off paragraph. The
+  // template's HTML ends with `<p>Regards,…</p>` or similar — we splice
+  // the payment block right before that closing block so it reads as
+  // the last piece of information the debtor sees before the sign-off.
+  let html = rendered.html;
+  if (args.payment) {
+    const payBlock = await renderPaymentBlock(
+      args.payment,
+      args.vars.amount,
+      `Invoice ${args.vars.billRef}`,
+    );
+    if (payBlock) {
+      const signoffIdx = html.lastIndexOf("<p>Regards,");
+      const anchor =
+        signoffIdx >= 0 ? signoffIdx : html.lastIndexOf("<p>Warm regards,");
+      if (anchor > 0) {
+        html = html.slice(0, anchor) + payBlock + html.slice(anchor);
+      } else {
+        // Fallback — append before closing body if sign-off not found.
+        html = html.replace("</body>", payBlock + "</body>");
+      }
+    }
+  }
 
   if (!resend) {
     console.log("[EMAIL STUB]", {
@@ -191,7 +292,7 @@ export async function sendReminderEmail(args: {
     to: args.to,
     subject: rendered.subject,
     text: rendered.text,
-    html: rendered.html,
+    html,
     attachments: args.attachments?.map((a) => ({
       filename: a.filename,
       content: a.content,
