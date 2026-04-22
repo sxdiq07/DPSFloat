@@ -21,6 +21,9 @@ const schema = z.object({
   emailSubjectOverride: z.string().max(200).optional(),
   emailBodyOverride: z.string().max(5000).optional(),
   whatsappBodyOverride: z.string().max(4000).optional(),
+  /** Whether the "Pay us" bank+QR block is rendered inside the email /
+   *  WhatsApp body. Defaults to true; staff can uncheck in the modal. */
+  includePayBlock: z.boolean().optional().default(true),
 });
 
 export type SendReminderResult =
@@ -166,16 +169,17 @@ export async function sendReminderNow(
         attachments,
         subjectOverride: parsed.data.emailSubjectOverride,
         bodyOverride: parsed.data.emailBodyOverride,
-        payment: firm
-          ? {
-              bankName: firm.bankName,
-              bankAccountName: firm.bankAccountName,
-              bankAccountNumber: firm.bankAccountNumber,
-              bankIfsc: firm.bankIfsc,
-              upiId: firm.upiId,
-              payeeName: firm.name,
-            }
-          : undefined,
+        payment:
+          firm && parsed.data.includePayBlock
+            ? {
+                bankName: firm.bankName,
+                bankAccountName: firm.bankAccountName,
+                bankAccountNumber: firm.bankAccountNumber,
+                bankIfsc: firm.bankIfsc,
+                upiId: firm.upiId,
+                payeeName: firm.name,
+              }
+            : undefined,
       });
       await prisma.reminderSent.create({
         data: {

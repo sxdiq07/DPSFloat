@@ -35,6 +35,9 @@ export function ReminderPreviewModal({
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const [whatsappBody, setWhatsappBody] = useState("");
+  // "Pay us" block (bank + UPI QR) — default on, staff can toggle off
+  // per-send if the debtor already has the firm's bank info.
+  const [includePayBlock, setIncludePayBlock] = useState(true);
 
   // Reset editable fields whenever a new preview arrives (or the modal
   // reopens on a different invoice). Using a memo on preview identity
@@ -76,6 +79,7 @@ export function ReminderPreviewModal({
         emailBodyOverride: channel === "EMAIL" && bodyEdited ? emailBody : undefined,
         whatsappBodyOverride:
           channel === "WHATSAPP" && whatsappEdited ? whatsappBody : undefined,
+        includePayBlock,
       });
       if (!r.ok) {
         toast.error(r.error);
@@ -275,13 +279,24 @@ export function ReminderPreviewModal({
 
             {/* Footer actions */}
             <div className="flex items-center justify-between border-t border-subtle bg-neutral-50 dark:bg-neutral-800 px-6 py-3">
-              <button
-                type="button"
-                onClick={onClose}
-                className="text-[13px] text-ink-3 transition-colors hover:text-ink"
-              >
-                Cancel
-              </button>
+              <div className="flex items-center gap-4">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="text-[13px] text-ink-3 transition-colors hover:text-ink"
+                >
+                  Cancel
+                </button>
+                <label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-ink-2">
+                  <input
+                    type="checkbox"
+                    checked={includePayBlock}
+                    onChange={(e) => setIncludePayBlock(e.target.checked)}
+                    className="h-3.5 w-3.5 accent-[var(--color-accent-blue,#0071e3)]"
+                  />
+                  Include bank + UPI QR
+                </label>
+              </div>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
