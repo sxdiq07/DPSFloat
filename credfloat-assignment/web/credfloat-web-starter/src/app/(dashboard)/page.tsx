@@ -142,7 +142,7 @@ export default async function OverviewPage() {
   ).slice(0, 10);
 
   // Secondary queries for the storytelling section
-  const [reachableCount, lastSync] = await Promise.all([
+  const [reachableCount, lastSync, brokenPromiseCounts] = await Promise.all([
     prisma.party.count({
       where: {
         clientCompany: { firmId },
@@ -158,7 +158,53 @@ export default async function OverviewPage() {
       orderBy: { lastSyncedAt: "desc" },
       select: { lastSyncedAt: true },
     }),
+    // Count broken promises per party — feeds the "at risk" surface.
+    prisma.promiseToPay.groupBy({
+      by: ["partyId"],
+      where: {
+        party: { clientCompany: { firmId } },
+        status: "BROKEN",
+      },
+      _count: { _all: true },
+    }),
   ]);
+
+  // At-risk debtors: broke ≥ 2 promises AND have 90+ overdue bills.
+  const brokenByParty = new Map(
+    brokenPromiseCounts.map((g) => [g.partyId, g._count._all]),
+  );
+  const atRiskPartyIds = [...brokenByParty.entries()]
+    .filter(([, n]) => n >= 2)
+    .map(([partyId]) => partyId);
+  const atRiskParties =
+    atRiskPartyIds.length === 0
+      ? []
+      : await prisma.party.findMany({
+          where: {
+            id: { in: atRiskPartyIds },
+            invoices: {
+              some: { status: "OPEN", ageBucket: "DAYS_90_PLUS" },
+            },
+          },
+          select: {
+            id: true,
+            tallyLedgerName: true,
+            mailingName: true,
+            closingBalance: true,
+            clientCompanyId: true,
+            clientCompany: { select: { displayName: true } },
+          },
+          orderBy: { closingBalance: "desc" },
+          take: 5,
+        });
+  const atRiskRows = atRiskParties.map((p) => ({
+    id: p.id,
+    name: p.mailingName || p.tallyLedgerName,
+    clientCompanyId: p.clientCompanyId,
+    clientCompanyName: p.clientCompany.displayName,
+    closingBalance: Number(p.closingBalance),
+    brokenPromises: brokenByParty.get(p.id) ?? 0,
+  }));
 
   const totalOutstanding = Number(totalOutstandingAgg._sum.closingBalance ?? 0);
   const overdue90 = Number(overdue90Agg._sum.outstandingAmount ?? 0);
@@ -308,6 +354,54 @@ export default async function OverviewPage() {
         </div>
         <StackedBar segments={ageingData} />
       </section>
+
+      {/* At-risk debtors — broken promises + 90+ overdue */}
+      {atRiskRows.length > 0 && (
+        <section
+          className="card-apple overflow-hidden"
+          style={{
+            borderLeft: "3px solid #c4483c",
+          }}
+        >
+          <div className="px-10 pt-8 pb-5">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#c4483c]">
+              At risk
+            </p>
+            <h2 className="mt-2 text-[22px] font-semibold tracking-tight text-ink">
+              Debtors with broken promises + 90+ overdue
+            </h2>
+            <p className="mt-1 text-[14px] text-ink-3">
+              These debtors have broken at least two payment commitments and
+              still have bills in the oldest ageing bucket. Worth a phone call,
+              not just another reminder.
+            </p>
+          </div>
+          <ol className="border-t border-subtle">
+            {atRiskRows.map((r, i) => (
+              <li
+                key={r.id}
+                className={`flex items-center justify-between px-10 py-4 ${i > 0 ? "border-t border-subtle" : ""}`}
+              >
+                <div className="min-w-0">
+                  <Link
+                    href={`/clients/${r.clientCompanyId}`}
+                    className="text-[15px] font-medium text-ink hover:underline"
+                  >
+                    {r.name}
+                  </Link>
+                  <div className="text-[12px] text-ink-3">
+                    {r.clientCompanyName} · {r.brokenPromises} broken promise
+                    {r.brokenPromises === 1 ? "" : "s"}
+                  </div>
+                </div>
+                <div className="tabular text-right text-[15px] font-semibold text-ink">
+                  {formatINR(r.closingBalance)}
+                </div>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       {/* Duplicate cross-client exposure */}
       <DuplicateExposure groups={dupGroups} />

@@ -20,6 +20,8 @@ import {
 } from "./_components/portal-link-panel";
 import { SendReminderButton } from "./_components/send-reminder-button";
 import { DownloadLedgerButton } from "./_components/download-ledger-button";
+import { InvoiceActions } from "./_components/invoice-actions";
+import { ExportRemindersButton } from "./_components/export-reminders-button";
 import { BookOpen } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -549,13 +551,19 @@ export default async function ClientDetailPage({
                         <AgePill bucket={inv.ageBucket} />
                       </td>
                       <td className="px-8 py-4 text-right">
-                        <SendReminderButton
-                          invoiceId={inv.id}
-                          hasEmail={Boolean(inv.party.email)}
-                          hasWhatsApp={Boolean(
-                            inv.party.whatsappNumber || inv.party.phone,
-                          )}
-                        />
+                        <div className="inline-flex items-center gap-2">
+                          <InvoiceActions
+                            invoiceId={inv.id}
+                            currentStatus={inv.status}
+                          />
+                          <SendReminderButton
+                            invoiceId={inv.id}
+                            hasEmail={Boolean(inv.party.email)}
+                            hasWhatsApp={Boolean(
+                              inv.party.whatsappNumber || inv.party.phone,
+                            )}
+                          />
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -567,6 +575,30 @@ export default async function ClientDetailPage({
 
         <TabsContent value="reminders" className="m-0">
           <div className="card-apple overflow-hidden">
+            {remindersSent.length > 0 && (
+              <div className="flex items-center justify-between border-b border-subtle px-8 py-4">
+                <div className="text-[12.5px] text-ink-3">
+                  {remindersSent.length} reminder
+                  {remindersSent.length === 1 ? "" : "s"} logged — full audit trail.
+                </div>
+                <ExportRemindersButton
+                  clientName={client.displayName}
+                  rows={remindersSent.map((r) => ({
+                    sentAt: formatInTimeZone(
+                      r.sentAt,
+                      "Asia/Kolkata",
+                      "yyyy-MM-dd HH:mm:ss",
+                    ),
+                    debtor: r.party.mailingName || r.party.tallyLedgerName,
+                    billRef: r.invoice.billRef,
+                    channel: r.channel,
+                    status: r.status,
+                    providerId: r.providerId,
+                    error: r.error,
+                  }))}
+                />
+              </div>
+            )}
             {remindersSent.length === 0 ? (
               <EmptyRow
                 title="No reminders sent yet"
