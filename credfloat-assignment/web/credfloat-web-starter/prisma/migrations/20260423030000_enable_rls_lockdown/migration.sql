@@ -9,21 +9,23 @@
 --   * blocks anon / authenticated PostgREST reads and writes completely
 --   * does NOT affect our Prisma app traffic (owner role bypasses RLS)
 --
--- This clears all 17 "rls_disabled_in_public" ERROR lints from Supabase
+-- This clears all 17 "rls_disabled_in_public" ERROR lints + the
+-- "sensitive_columns_exposed" lint on PortalToken.token from Supabase,
 -- and is the recommended hardening when PostgREST is not in use.
 
-ALTER TABLE "Firm"               ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "FirmStaff"          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "ClientCompany"      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "Party"              ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "Invoice"            ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "Receipt"            ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "ReceiptAllocation"  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "ReminderRule"       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "ReminderSent"       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "Note"               ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "PromiseToPay"       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "SavedView"          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "PortalToken"        ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "ActivityLog"        ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "LedgerEntry"        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Firm"                ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "FirmStaff"           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "ClientCompany"       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Party"               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Invoice"             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Receipt"             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "ReceiptAllocation"   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "ReminderRule"        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "ReminderSent"        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Note"                ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "PromiseToPay"        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "SavedView"           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "PortalToken"         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "ActivityLog"         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "LedgerEntry"         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "_prisma_migrations"  ENABLE ROW LEVEL SECURITY;
