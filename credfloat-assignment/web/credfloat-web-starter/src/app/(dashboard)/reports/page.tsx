@@ -25,7 +25,21 @@ export default async function ReportsPage() {
   twelveMonthsAgo.setDate(1);
   twelveMonthsAgo.setHours(0, 0, 0, 0);
 
-  const [ageingBuckets, receipts, clientReach] = await Promise.all([
+  // Current week window (IST Monday 00:00 → now)
+  const weekStart = new Date(now);
+  const dow = weekStart.getDay(); // 0 = Sun
+  const daysSinceMon = (dow + 6) % 7;
+  weekStart.setDate(weekStart.getDate() - daysSinceMon);
+  weekStart.setHours(0, 0, 0, 0);
+
+  const [
+    ageingBuckets,
+    receipts,
+    clientReach,
+    staffReminders,
+    staff,
+    promises,
+  ] = await Promise.all([
     prisma.invoice.groupBy({
       by: ["ageBucket"],
       where: { clientCompany: { firmId }, status: "OPEN" },
@@ -55,6 +69,31 @@ export default async function ReportsPage() {
           select: { id: true },
         },
       },
+    }),
+    prisma.activityLog.groupBy({
+      by: ["actorId"],
+      where: {
+        firmId,
+        action: "reminder.sent_manual",
+        createdAt: { gte: weekStart },
+        actorId: { not: null },
+      },
+      _count: { _all: true },
+    }),
+    prisma.firmStaff.findMany({
+      where: { firmId },
+      select: { id: true, name: true, role: true },
+    }),
+    prisma.promiseToPay.findMany({
+      where: { party: { clientCompany: { firmId } } },
+      select: {
+        id: true,
+        amount: true,
+        promisedBy: true,
+        status: true,
+        party: { select: { id: true, tallyLedgerName: true, clientCompanyId: true } },
+      },
+      orderBy: { promisedBy: "desc" },
     }),
   ]);
 
@@ -92,6 +131,73 @@ export default async function ReportsPage() {
     color: BUCKET_COLORS[bucket],
   }));
   const ageingTotal = slices.reduce((s, x) => s + x.value, 0);
+
+  // Staff performance — manual reminders this week
+  const staffById = new Map(staff.map((s) => [s.id, s]));
+  const staffRows = staffReminders
+    .map((r) => {
+      const s = r.actorId ? staffById.get(r.actorId) : null;
+      return {
+        id: r.actorId ?? "unknown",
+        name: s?.name ?? "Unknown user",
+        role: s?.role ?? "STAFF",
+        count: r._count._all,
+      };
+    })
+    .sort((a, b) => b.count - a.count);
+  const staffReminderTotal = staffRows.reduce((s, x) => s + x.count, 0);
+  const staffMax = staffRows[0]?.count ?? 0;
+
+  // Promise slippage — aggregate & per-party slippage list
+  let keptCount = 0;
+  let brokenCount = 0;
+  let openCount = 0;
+  let openOverdueCount = 0;
+  const brokenByParty = new Map<
+    string,
+    {
+      partyId: string;
+      label: string;
+      clientCompanyId: string;
+      brokenAmount: number;
+      count: number;
+      latestPromised: Date;
+    }
+  >();
+  for (const p of promises) {
+    if (p.status === "KEPT") keptCount++;
+    else if (p.status === "BROKEN") brokenCount++;
+    else {
+      openCount++;
+      if (p.promisedBy < now) openOverdueCount++;
+    }
+    if (p.status === "BROKEN") {
+      const key = p.party.id;
+      const prior = brokenByParty.get(key);
+      const amt = Number(p.amount);
+      if (prior) {
+        prior.brokenAmount += amt;
+        prior.count += 1;
+        if (p.promisedBy > prior.latestPromised) prior.latestPromised = p.promisedBy;
+      } else {
+        brokenByParty.set(key, {
+          partyId: p.party.id,
+          label: p.party.tallyLedgerName,
+          clientCompanyId: p.party.clientCompanyId,
+          brokenAmount: amt,
+          count: 1,
+          latestPromised: p.promisedBy,
+        });
+      }
+    }
+  }
+  const promiseKeepRate =
+    keptCount + brokenCount === 0
+      ? null
+      : (keptCount / (keptCount + brokenCount)) * 100;
+  const topBrokenPromises = [...brokenByParty.values()]
+    .sort((a, b) => b.brokenAmount - a.brokenAmount)
+    .slice(0, 8);
 
   // Reachability leaderboard
   const reachabilityRows = clientReach
@@ -251,6 +357,165 @@ export default async function ReportsPage() {
           </div>
         )}
       </section>
+
+      {/* Staff performance + Promise slippage */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+        <section className="card-apple p-8 lg:col-span-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3">
+            Staff activity
+          </p>
+          <h2 className="mt-2 text-[22px] font-semibold tracking-tight text-ink">
+            Manual reminders this week
+          </h2>
+          <p className="mt-1 text-[14px] text-ink-3">
+            Sends logged since Monday 00:00 IST. Automated cron sends are
+            excluded.
+          </p>
+          <div className="mt-6">
+            {staffRows.length === 0 ? (
+              <p className="py-8 text-center text-[14px] text-ink-3">
+                No manual reminders sent this week.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {staffRows.map((s) => {
+                  const pct = staffMax === 0 ? 0 : (s.count / staffMax) * 100;
+                  return (
+                    <div key={s.id} className="space-y-1.5">
+                      <div className="flex items-center justify-between text-[14px]">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-ink">
+                            {s.name}
+                          </span>
+                          <span className="rounded-full border border-subtle px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-ink-3">
+                            {s.role}
+                          </span>
+                        </div>
+                        <span className="tabular text-[14px] font-semibold text-ink">
+                          {s.count}
+                        </span>
+                      </div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-[var(--color-surface-2)]">
+                        <div
+                          className="h-full rounded-full bg-[#0a84ff] transition-all duration-700 ease-[cubic-bezier(0.2,0.8,0.2,1)]"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+                <div className="mt-4 border-t border-subtle pt-3 text-right text-[12px] text-ink-3">
+                  Team total:{" "}
+                  <span className="tabular font-semibold text-ink">
+                    {staffReminderTotal}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="card-apple p-8 lg:col-span-3">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3">
+                Promises
+              </p>
+              <h2 className="mt-2 text-[22px] font-semibold tracking-tight text-ink">
+                Promise-to-pay slippage
+              </h2>
+              <p className="mt-1 text-[14px] text-ink-3">
+                How often debtors keep their word. Broken promises are the
+                leading indicator of a write-off.
+              </p>
+            </div>
+            <div className="text-right">
+              <div className="tabular text-[28px] font-semibold text-ink">
+                {promiseKeepRate === null
+                  ? "—"
+                  : `${promiseKeepRate.toFixed(0)}%`}
+              </div>
+              <div className="text-[11px] uppercase tracking-wider text-ink-3">
+                keep rate
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 grid grid-cols-4 gap-3">
+            <div className="rounded-xl border border-subtle bg-[var(--color-surface-3)] p-3">
+              <div className="text-[11px] uppercase tracking-wider text-ink-3">
+                Open
+              </div>
+              <div className="tabular mt-1 text-[20px] font-semibold text-ink">
+                {openCount}
+              </div>
+            </div>
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <div className="text-[11px] uppercase tracking-wider text-amber-700">
+                Overdue
+              </div>
+              <div className="tabular mt-1 text-[20px] font-semibold text-amber-800">
+                {openOverdueCount}
+              </div>
+            </div>
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+              <div className="text-[11px] uppercase tracking-wider text-emerald-700">
+                Kept
+              </div>
+              <div className="tabular mt-1 text-[20px] font-semibold text-emerald-800">
+                {keptCount}
+              </div>
+            </div>
+            <div className="rounded-xl border border-red-200 bg-red-50 p-3">
+              <div className="text-[11px] uppercase tracking-wider text-red-700">
+                Broken
+              </div>
+              <div className="tabular mt-1 text-[20px] font-semibold text-red-800">
+                {brokenCount}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6">
+            <h3 className="text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-3">
+              Debtors who&apos;ve broken the most
+            </h3>
+            {topBrokenPromises.length === 0 ? (
+              <p className="mt-4 py-4 text-center text-[14px] text-ink-3">
+                No broken promises yet.
+              </p>
+            ) : (
+              <div className="mt-3 divide-y divide-subtle rounded-xl border border-subtle">
+                {topBrokenPromises.map((p) => (
+                  <a
+                    key={p.partyId}
+                    href={`/clients/${p.clientCompanyId}?party=${p.partyId}`}
+                    className="flex items-center justify-between gap-4 px-4 py-3 transition-colors hover:bg-[var(--color-surface-2)]"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-[14px] font-medium text-ink">
+                        {p.label}
+                      </div>
+                      <div className="text-[11px] text-ink-3">
+                        {p.count} broken
+                        {p.count === 1 ? " promise" : " promises"} · latest{" "}
+                        {p.latestPromised.toLocaleDateString("en-IN", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        })}
+                      </div>
+                    </div>
+                    <div className="tabular shrink-0 text-[14px] font-semibold text-red-700">
+                      {formatINR(p.brokenAmount)}
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
