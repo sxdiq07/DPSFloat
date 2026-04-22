@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import { MessageCircle, Send, Trash2, Bell, Sparkles } from "lucide-react";
-import { addNote, deleteNote } from "../_actions/notes";
+import { addNote, deleteNote, deleteReminder } from "../_actions/notes";
 
 export type TimelineEvent = {
   key: string;
@@ -15,6 +15,7 @@ export type TimelineEvent = {
   body?: React.ReactNode;
   authorName?: string;
   noteId?: string;
+  reminderId?: string;
   canDelete?: boolean;
 };
 
@@ -50,6 +51,24 @@ export function NotesTimeline({
       const res = await deleteNote(noteId);
       if (res.ok) {
         toast.success("Note deleted");
+        router.refresh();
+      } else {
+        toast.error(res.error);
+      }
+    });
+  };
+
+  const onDeleteReminder = (reminderId: string) => {
+    if (
+      !confirm(
+        "Remove this reminder from the log? The email / WhatsApp has already been sent — this only hides the audit entry.",
+      )
+    )
+      return;
+    startPending(async () => {
+      const res = await deleteReminder(reminderId);
+      if (res.ok) {
+        toast.success("Reminder removed from log");
         router.refresh();
       } else {
         toast.error(res.error);
@@ -161,13 +180,19 @@ export function NotesTimeline({
                     )}
                   </div>
 
-                  {e.canDelete && e.noteId && (
+                  {e.canDelete && (e.noteId || e.reminderId) && (
                     <button
                       type="button"
-                      onClick={() => onDelete(e.noteId!)}
+                      onClick={() =>
+                        e.noteId
+                          ? onDelete(e.noteId)
+                          : e.reminderId
+                            ? onDeleteReminder(e.reminderId)
+                            : undefined
+                      }
                       disabled={pending}
                       className="h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ink-3 opacity-0 transition-all hover:bg-[rgba(255,69,58,0.08)] hover:text-[#c6373a] group-hover:flex disabled:opacity-30"
-                      aria-label="Delete note"
+                      aria-label={e.noteId ? "Delete note" : "Remove from log"}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>

@@ -184,6 +184,8 @@ export default async function ClientDetailPage({
       ),
       body:
         r.status === "FAILED" ? `Failed: ${r.error ?? "unknown error"}` : undefined,
+      reminderId: r.id,
+      canDelete: session?.user?.role === "PARTNER",
     });
   }
   for (const p of allPromises) {
@@ -328,8 +330,8 @@ export default async function ClientDetailPage({
       {/* Activity timeline (notes + reminders + promises) */}
       <NotesTimeline clientCompanyId={client.id} events={timeline} />
 
-      <Tabs defaultValue="debtors" className="space-y-5">
-        <TabsList className="bg-[var(--color-surface-2)]">
+      <Tabs defaultValue="debtors" className="flex flex-col gap-5">
+        <TabsList className="self-start bg-[var(--color-surface-2)]">
           <TabsTrigger value="debtors">
             Debtors
             <span className="ml-2 text-[11px] text-ink-3">

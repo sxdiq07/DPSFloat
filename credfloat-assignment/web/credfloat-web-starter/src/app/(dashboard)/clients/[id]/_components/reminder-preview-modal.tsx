@@ -115,22 +115,31 @@ export function ReminderPreviewModal({
         position: "fixed",
         inset: 0,
         zIndex: 99999,
-        backgroundColor: "rgba(0,0,0,0.5)",
+        // Transparent — manager asked for the modal only, no page dim.
+        // Clicks outside the card still close the modal via the overlay
+        // div below, but nothing is tinted.
+        backgroundColor: "transparent",
+        pointerEvents: "none",
       }}
     >
       <div
         className="absolute inset-0"
         onClick={onClose}
         aria-hidden
+        style={{ pointerEvents: "auto" }}
       />
       <div
-        className="relative flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl shadow-2xl"
+        className="relative flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl"
         style={{
           zIndex: 100000,
           backgroundColor: "#ffffff",
           border: "1px solid rgba(0,0,0,0.12)",
           color: "#111111",
           minHeight: "200px",
+          pointerEvents: "auto",
+          // Stronger shadow compensates for the removed backdrop dim.
+          boxShadow:
+            "0 10px 40px -8px rgba(0,0,0,0.25), 0 4px 12px -2px rgba(0,0,0,0.15)",
         }}
       >
         <div className="flex items-center justify-between border-b border-subtle px-6 py-4">

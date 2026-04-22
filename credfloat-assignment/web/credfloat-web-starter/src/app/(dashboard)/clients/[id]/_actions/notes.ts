@@ -49,6 +49,52 @@ export async function addNote(
   }
 }
 
+/**
+ * Delete a sent reminder entry from the activity log. Only a PARTNER
+ * (or the staff member who sent it) can remove it — ReminderSent is
+ * a firm-internal audit record; the email or WhatsApp has already
+ * left. This just hides it from the timeline and deletes the row.
+ */
+export async function deleteReminder(
+  reminderId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const session = await requireAuth();
+    const firmId = await requireFirmId();
+    const reminder = await prisma.reminderSent.findFirst({
+      where: {
+        id: reminderId,
+        invoice: { clientCompany: { firmId } },
+      },
+      select: {
+        id: true,
+        invoice: { select: { clientCompanyId: true } },
+      },
+    });
+    if (!reminder) return { ok: false, error: "Reminder not found" };
+    if (session.user.role !== "PARTNER") {
+      return {
+        ok: false,
+        error: "Only partners can delete reminder log entries.",
+      };
+    }
+    await prisma.reminderSent.delete({ where: { id: reminder.id } });
+    await logActivity({
+      firmId,
+      actorId: session.user.id,
+      action: "reminder.log_deleted",
+      targetType: "ReminderSent",
+      targetId: reminder.id,
+      meta: { clientCompanyId: reminder.invoice.clientCompanyId },
+    });
+    revalidatePath(`/clients/${reminder.invoice.clientCompanyId}`);
+    return { ok: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: msg };
+  }
+}
+
 export async function deleteNote(
   noteId: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {

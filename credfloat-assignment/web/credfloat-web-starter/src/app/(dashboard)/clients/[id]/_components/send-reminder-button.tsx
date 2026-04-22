@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Mail, MessageCircle, Send, Loader2, Eye } from "lucide-react";
 import { sendReminderNow } from "../_actions/send-reminder";
@@ -26,6 +26,48 @@ export function SendReminderButton({
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [preview, setPreview] = useState<ReminderPreview | null>(null);
+
+  // Popover position in viewport coords. Computed when opening so the
+  // menu renders in `position: fixed` and escapes the parent card's
+  // `overflow-hidden`. Flip above the button when near the bottom of
+  // the viewport so last-row clicks don't clip off-screen.
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const [menuPos, setMenuPos] = useState<{
+    top: number;
+    right: number;
+    openUp: boolean;
+  } | null>(null);
+
+  const toggleOpen = () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    const rect = btnRef.current?.getBoundingClientRect();
+    if (rect) {
+      const menuH = 160; // approx height
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const openUp = spaceBelow < menuH + 24;
+      setMenuPos({
+        top: openUp ? rect.top - 6 : rect.bottom + 6,
+        right: window.innerWidth - rect.right,
+        openUp,
+      });
+    }
+    setOpen(true);
+  };
+
+  // Close on scroll / resize so the menu doesn't float over stale coords.
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [open]);
 
   const onPreview = () => {
     setOpen(false);
@@ -85,9 +127,10 @@ export function SendReminderButton({
   return (
     <div className="relative inline-block">
       <button
+        ref={btnRef}
         type="button"
         disabled={pending}
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggleOpen}
         className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-3)] px-3 py-1.5 text-[12px] font-medium text-ink-2 transition-all hover:border-[var(--color-border-hair)] hover:text-ink disabled:opacity-60"
       >
         {pending ? (
@@ -97,14 +140,26 @@ export function SendReminderButton({
         )}
         Send
       </button>
-      {open && (
+      {open && menuPos && (
         <>
           <div
-            className="fixed inset-0 z-10"
+            className="fixed inset-0"
+            style={{ zIndex: 9998 }}
             onClick={() => setOpen(false)}
             aria-hidden
           />
-          <div className="absolute right-0 z-20 mt-1 min-w-[200px] overflow-hidden rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-surface-1)] py-1 shadow-lg">
+          <div
+            className="min-w-[200px] overflow-hidden rounded-lg border border-[var(--color-border-subtle)] bg-white py-1 shadow-lg"
+            style={{
+              position: "fixed",
+              zIndex: 9999,
+              top: menuPos.openUp ? "auto" : menuPos.top,
+              bottom: menuPos.openUp
+                ? window.innerHeight - menuPos.top
+                : "auto",
+              right: menuPos.right,
+            }}
+          >
             <button
               type="button"
               onClick={onPreview}
