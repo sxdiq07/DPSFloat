@@ -462,7 +462,7 @@ model LedgerEntry {
   counterparty    String        @default("")
   narration       String?
 
-  /** Rupees. Only one of debit/credit is non-zero per row. */
+  // Rupees. Only one of debit/credit is non-zero per row.
   debit           Decimal       @db.Decimal(15, 2) @default(0)
   credit          Decimal       @db.Decimal(15, 2) @default(0)
 
