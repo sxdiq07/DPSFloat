@@ -100,9 +100,8 @@ export default function LoginPage() {
                     Password
                   </Label>
                   <a
-                    href="#"
+                    href="/forgot-password"
                     className="text-[12px] font-medium text-[var(--color-accent-blue)] hover:underline"
-                    tabIndex={-1}
                   >
                     Forgot?
                   </a>

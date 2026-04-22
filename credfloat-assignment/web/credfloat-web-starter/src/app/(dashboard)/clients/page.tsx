@@ -49,7 +49,13 @@ export default async function ClientsPage({
 
   const ids = companies.map((c) => c.id);
 
-  const [totals, overdueTotals] = await Promise.all([
+  // 6-month sparkline window — sum of receipts per calendar month per client
+  const sixMonthsAgo = new Date();
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
+  sixMonthsAgo.setDate(1);
+  sixMonthsAgo.setHours(0, 0, 0, 0);
+
+  const [totals, overdueTotals, trendReceipts] = await Promise.all([
     // Per-client due — sum of that client's debtors' positive ledger
     // balances (the actual money owed to each firm client).
     prisma.party.groupBy({
@@ -68,7 +74,32 @@ export default async function ClientsPage({
       },
       _sum: { outstandingAmount: true },
     }),
+    prisma.receipt.findMany({
+      where: {
+        clientCompanyId: { in: ids },
+        receiptDate: { gte: sixMonthsAgo },
+      },
+      select: { clientCompanyId: true, receiptDate: true, amount: true },
+    }),
   ]);
+
+  // Zero-fill 6 month keys in ascending order
+  const monthKeys: string[] = [];
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(sixMonthsAgo);
+    d.setMonth(d.getMonth() + i);
+    monthKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+  const sparkByClient = new Map<string, number[]>();
+  for (const id of ids) sparkByClient.set(id, monthKeys.map(() => 0));
+  for (const r of trendReceipts) {
+    const d = new Date(r.receiptDate);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const idx = monthKeys.indexOf(key);
+    if (idx === -1) continue;
+    const arr = sparkByClient.get(r.clientCompanyId);
+    if (arr) arr[idx] += Number(r.amount);
+  }
 
   const totalById = new Map(
     totals.map((t) => [t.clientCompanyId, Number(t._sum.closingBalance ?? 0)]),
@@ -93,6 +124,7 @@ export default async function ClientsPage({
       (overdueById.get(c.id) ?? 0) > 0
         ? formatINR(overdueById.get(c.id) ?? 0)
         : null,
+    sparkline: sparkByClient.get(c.id) ?? [],
   }));
 
   return (
