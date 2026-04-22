@@ -37,28 +37,51 @@ async function main() {
   console.log(`  Partner name  : ${firm.partnerName}`);
   console.log(`  Partner M.No. : ${firm.partnerMno}\n`);
 
-  // 2. Demo debtor. Tally's ledger spells it "VIP INSUSTRIES LTD" (sic).
+  // 2. Demo debtor. The Send button only appears on invoice rows whose
+  // party has email or whatsapp on file, so we target parties that
+  // actually have OPEN bills — otherwise the invoice-tab demo has no
+  // row to click. VIP INSUSTRIES LTD has a big ledger balance but zero
+  // open bills (all in 'unbilled residual' / opening balance), so
+  // seeding contacts on VIP wouldn't surface a Send button.
   const parties = await prisma.party.findMany({
-    where: { tallyLedgerName: { contains: "VIP", mode: "insensitive" } },
-    select: { id: true, tallyLedgerName: true },
+    where: {
+      invoices: {
+        some: { status: "OPEN", outstandingAmount: { gt: 0 } },
+      },
+    },
+    select: {
+      id: true,
+      tallyLedgerName: true,
+      closingBalance: true,
+      _count: { select: { invoices: { where: { status: "OPEN" } } } },
+    },
+    orderBy: { closingBalance: "desc" },
+    take: 5,
   });
+
   if (parties.length === 0) {
     console.warn(
-      "⚠ No party matched 'VIP' — has the Tally sync been run? Skipping debtor update.",
+      "⚠ No parties have open invoices. Run the Tally connector first.",
     );
-  } else if (parties.length > 1) {
-    console.warn(
-      `⚠ ${parties.length} parties matched 'VIP'. Updating all of them — narrow the filter if that's wrong.`,
+  } else {
+    console.log(
+      `Top ${parties.length} parties with open invoices (by ledger balance):`,
     );
-  }
+    for (const p of parties) {
+      console.log(
+        `  · ${p.tallyLedgerName} — ₹${Number(p.closingBalance).toLocaleString("en-IN")} · ${p._count.invoices} open bills`,
+      );
+    }
+    console.log(`\nSeeding contacts on all ${parties.length}:\n`);
 
-  for (const p of parties) {
-    await prisma.party.update({
-      where: { id: p.id },
-      data: { email: DEMO_EMAIL, whatsappNumber: DEMO_WHATSAPP },
-    });
-    console.log(`✓ ${p.tallyLedgerName}`);
-    console.log(`  email         : ${DEMO_EMAIL}`);
+    for (const p of parties) {
+      await prisma.party.update({
+        where: { id: p.id },
+        data: { email: DEMO_EMAIL, whatsappNumber: DEMO_WHATSAPP },
+      });
+      console.log(`✓ ${p.tallyLedgerName}`);
+    }
+    console.log(`\n  email         : ${DEMO_EMAIL}`);
     console.log(`  whatsappNumber: ${DEMO_WHATSAPP}`);
   }
 
