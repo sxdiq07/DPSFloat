@@ -25,13 +25,27 @@ let _ReactPDF: any = null;
 async function loadRuntime() {
   if (!_React) {
     const mod = await import(/* webpackIgnore: true */ "react");
+    // React's default is the full namespace; named exports also exist.
     _React = (mod as { default?: unknown }).default ?? mod;
   }
   if (!_ReactPDF) {
     const mod = await import(
       /* webpackIgnore: true */ "@react-pdf/renderer"
     );
-    _ReactPDF = (mod as { default?: unknown }).default ?? mod;
+    // @react-pdf's package publishes both default and named exports.
+    // Default may only hold the React-PDF components; renderToBuffer
+    // can live on either the namespace or default. Pick whichever has
+    // renderToBuffer as a function so every destructure below works.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const m = mod as any;
+    if (typeof m.renderToBuffer === "function") {
+      _ReactPDF = m;
+    } else if (m.default && typeof m.default.renderToBuffer === "function") {
+      _ReactPDF = m.default;
+    } else {
+      // Combine namespace + default so nothing is missed.
+      _ReactPDF = { ...(m.default ?? {}), ...m };
+    }
   }
   return { React: _React, ReactPDF: _ReactPDF };
 }
