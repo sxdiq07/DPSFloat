@@ -1,23 +1,32 @@
-import {
-  Document,
-  Page,
-  Text,
-  View,
-  Image,
-  StyleSheet,
-  renderToBuffer,
-} from "@react-pdf/renderer";
-import * as React from "react";
+import { createRequire } from "node:module";
 import type { LedgerStatement } from "@/lib/ledger-data";
 import { buildUpiQr } from "@/lib/upi-qr";
 
 /**
- * PDF render — built entirely via React.createElement (no JSX in this
- * file). JSX in Next.js 15 + @react-pdf/renderer was producing
- * elements the reconciler didn't recognise, causing "Minified React
- * error #31" on every render. createElement bypasses every JSX
- * transform and reconciles cleanly.
+ * PDF render.
+ *
+ * Next.js 15 ships its own bundled React at `next/dist/compiled/react`
+ * and aliases imports from server-side code to that copy. Meanwhile
+ * @react-pdf/renderer does `require("react")` which resolves to the
+ * app's node_modules/react. The two Reacts are different instances,
+ * so element $$typeof symbols don't match and every renderToBuffer
+ * call explodes with React error #31.
+ *
+ * Workaround: use Node's runtime `createRequire` to resolve BOTH
+ * React and @react-pdf/renderer through the same module resolver
+ * Node uses. No bundling, no aliasing, same React instance on both
+ * sides of the reconciler.
  */
+
+const nodeRequire = createRequire(import.meta.url);
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const React: any = nodeRequire("react");
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ReactPDF: any = nodeRequire("@react-pdf/renderer");
+
+const { Document, Page, Text, View, Image, StyleSheet, renderToBuffer } =
+  ReactPDF;
 
 const h = React.createElement;
 
@@ -136,7 +145,9 @@ function formatDate(d: Date): string {
 
 function line(label: string, value?: string | null) {
   if (!value) return null;
-  return h(View, { style: { marginTop: 4 } },
+  return h(
+    View,
+    { style: { marginTop: 4 } },
     h(Text, { style: styles.payLabel }, label),
     h(Text, { style: styles.payLine }, value),
   );
@@ -171,34 +182,46 @@ export async function renderLedgerPdf(
     Boolean(payment?.bankAccountNumber) ||
     Boolean(payment?.upiId);
 
-  // -------- Header --------
-  const header = h(View, { style: styles.header },
-    h(View, null,
+  const header = h(
+    View,
+    { style: styles.header },
+    h(
+      View,
+      null,
       h(Text, { style: styles.firmName }, firmName),
       h(Text, { style: styles.firmSub }, "Chartered Accountants"),
       frn ? h(Text, { style: styles.firmSub }, "FRN: " + frn) : null,
     ),
-    h(View, null,
+    h(
+      View,
+      null,
       h(Text, { style: styles.title }, "LEDGER STATEMENT"),
       h(Text, { style: styles.periodLabel }, data.period.label),
     ),
   );
 
-  // -------- Meta row --------
-  const meta = h(View, { style: styles.metaRow },
-    h(View, { style: styles.metaCell },
+  const meta = h(
+    View,
+    { style: styles.metaRow },
+    h(
+      View,
+      { style: styles.metaCell },
       h(Text, { style: styles.metaLabel }, "Debtor"),
       h(Text, { style: styles.metaValue }, data.party.name),
       data.party.address
         ? h(Text, { style: styles.metaSub }, data.party.address)
         : null,
     ),
-    h(View, { style: styles.metaCell },
+    h(
+      View,
+      { style: styles.metaCell },
       h(Text, { style: styles.metaLabel }, "In the books of"),
       h(Text, { style: styles.metaValue }, data.clientCompany.displayName),
       h(Text, { style: styles.metaSub }, "Managed by " + firmName),
     ),
-    h(View, { style: styles.metaCell },
+    h(
+      View,
+      { style: styles.metaCell },
       h(Text, { style: styles.metaLabel }, "Period"),
       h(
         Text,
@@ -207,12 +230,17 @@ export async function renderLedgerPdf(
           ? data.period.to
           : data.period.from + " → " + data.period.to,
       ),
-      h(Text, { style: styles.metaSub }, "Generated " + formatDate(data.generatedAt)),
+      h(
+        Text,
+        { style: styles.metaSub },
+        "Generated " + formatDate(data.generatedAt),
+      ),
     ),
   );
 
-  // -------- Table --------
-  const headRow = h(View, { style: styles.thead },
+  const headRow = h(
+    View,
+    { style: styles.thead },
     h(Text, { style: [styles.th, styles.cDate] }, "Date"),
     h(Text, { style: [styles.th, styles.cVch] }, "Voucher"),
     h(Text, { style: [styles.th, styles.cPart] }, "Particulars"),
@@ -221,7 +249,9 @@ export async function renderLedgerPdf(
     h(Text, { style: [styles.th, styles.cBal] }, "Balance"),
   );
 
-  const openingRow = h(View, { style: styles.tr },
+  const openingRow = h(
+    View,
+    { style: styles.tr },
     h(Text, { style: [styles.td, styles.cDate] }, "—"),
     h(Text, { style: [styles.td, styles.cVch] }, "—"),
     h(Text, { style: [styles.td, styles.cPart] }, "Opening balance"),
@@ -231,17 +261,29 @@ export async function renderLedgerPdf(
   );
 
   const dataRows = data.rows.map((r, i) =>
-    h(View, { key: "r" + i, style: styles.tr },
+    h(
+      View,
+      { key: "r" + i, style: styles.tr },
       h(Text, { style: [styles.td, styles.cDate] }, formatDate(r.date)),
       h(Text, { style: [styles.td, styles.cVch] }, r.voucher),
       h(Text, { style: [styles.td, styles.cPart] }, r.particulars),
-      h(Text, { style: [styles.td, styles.cDr] }, r.debit > 0 ? inr(r.debit) : ""),
-      h(Text, { style: [styles.td, styles.cCr] }, r.credit > 0 ? inr(r.credit) : ""),
+      h(
+        Text,
+        { style: [styles.td, styles.cDr] },
+        r.debit > 0 ? inr(r.debit) : "",
+      ),
+      h(
+        Text,
+        { style: [styles.td, styles.cCr] },
+        r.credit > 0 ? inr(r.credit) : "",
+      ),
       h(Text, { style: [styles.td, styles.cBal] }, inr(r.runningBalance)),
     ),
   );
 
-  const totalsRow = h(View, { style: styles.trTotals },
+  const totalsRow = h(
+    View,
+    { style: styles.trTotals },
     h(Text, { style: [styles.td, styles.cDate] }, ""),
     h(Text, { style: [styles.td, styles.cVch] }, ""),
     h(Text, { style: [styles.td, styles.cPart] }, "Totals · closing balance"),
@@ -250,17 +292,22 @@ export async function renderLedgerPdf(
     h(Text, { style: [styles.td, styles.cBal] }, inr(data.closingBalance)),
   );
 
-  const table = h(View, { style: styles.table },
+  const table = h(
+    View,
+    { style: styles.table },
     headRow,
     openingRow,
     ...dataRows,
     totalsRow,
   );
 
-  // -------- Payment block --------
   const payBlock = hasPay
-    ? h(View, { style: styles.payBlock },
-        h(View, { style: styles.payLeft },
+    ? h(
+        View,
+        { style: styles.payBlock },
+        h(
+          View,
+          { style: styles.payLeft },
           h(Text, { style: styles.payHeading }, "Pay us"),
           line("Bank", payment?.bankName),
           line("Account name", payment?.bankAccountName),
@@ -269,7 +316,9 @@ export async function renderLedgerPdf(
           line("UPI", payment?.upiId),
         ),
         qrDataUrl
-          ? h(View, null,
+          ? h(
+              View,
+              null,
               h(Image, { src: qrDataUrl, style: styles.payQr }),
               h(Text, { style: styles.payQrCaption }, "Scan any UPI app"),
             )
@@ -277,9 +326,12 @@ export async function renderLedgerPdf(
       )
     : null;
 
-  // -------- Signatory --------
-  const signatory = h(View, { style: styles.sign },
-    h(View, { style: styles.signL },
+  const signatory = h(
+    View,
+    { style: styles.sign },
+    h(
+      View,
+      { style: styles.signL },
       h(
         Text,
         { style: styles.subtle },
@@ -288,10 +340,14 @@ export async function renderLedgerPdf(
           ". Please reconcile and revert within 7 days of receipt.",
       ),
     ),
-    h(View, { style: styles.signR },
+    h(
+      View,
+      { style: styles.signR },
       h(Text, { style: styles.subtle }, "For " + firmName),
       h(Text, { style: styles.subtle }, "Chartered Accountants"),
-      h(View, { style: styles.signLine },
+      h(
+        View,
+        { style: styles.signLine },
         h(Text, { style: styles.subtle }, partner || "Partner signature"),
         mno ? h(Text, { style: styles.subtle }, "M.No. " + mno) : null,
       ),
@@ -307,7 +363,9 @@ export async function renderLedgerPdf(
       formatDate(data.generatedAt),
   );
 
-  const page = h(Page, { size: "A4", style: styles.page },
+  const page = h(
+    Page,
+    { size: "A4", style: styles.page },
     header,
     meta,
     table,
