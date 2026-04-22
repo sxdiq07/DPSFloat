@@ -1,6 +1,3 @@
-/** @jsxRuntime classic */
-/** @jsx React.createElement */
-import React from "react";
 import {
   Document,
   Page,
@@ -10,8 +7,27 @@ import {
   StyleSheet,
   renderToBuffer,
 } from "@react-pdf/renderer";
+import * as React from "react";
 import type { LedgerStatement } from "@/lib/ledger-data";
 import { buildUpiQr } from "@/lib/upi-qr";
+
+/**
+ * PDF render — built entirely via React.createElement (no JSX in this
+ * file). JSX in Next.js 15 + @react-pdf/renderer was producing
+ * elements the reconciler didn't recognise, causing "Minified React
+ * error #31" on every render. createElement bypasses every JSX
+ * transform and reconciles cleanly.
+ */
+
+const h = React.createElement;
+
+export interface FirmPaymentDetails {
+  bankName?: string | null;
+  bankAccountName?: string | null;
+  bankAccountNumber?: string | null;
+  bankIfsc?: string | null;
+  upiId?: string | null;
+}
 
 const styles = StyleSheet.create({
   page: {
@@ -20,121 +36,76 @@ const styles = StyleSheet.create({
     fontFamily: "Helvetica",
     color: "#111",
   },
-  headerBand: {
+  header: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
     borderBottom: "1pt solid #333",
     paddingBottom: 10,
     marginBottom: 14,
   },
   firmName: { fontSize: 14, fontFamily: "Helvetica-Bold" },
   firmSub: { fontSize: 8, color: "#555", marginTop: 2 },
-  titleRight: { alignItems: "flex-end" },
-  title: { fontSize: 11, fontFamily: "Helvetica-Bold" },
-  periodLabel: { fontSize: 8, color: "#555", marginTop: 2 },
-
+  title: { fontSize: 11, fontFamily: "Helvetica-Bold", textAlign: "right" },
+  periodLabel: { fontSize: 8, color: "#555", marginTop: 2, textAlign: "right" },
   metaRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 10,
-    gap: 12,
+    marginBottom: 12,
   },
-  metaCell: { flex: 1 },
-  metaLabel: {
-    fontSize: 7,
-    color: "#777",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  metaValue: { fontSize: 10, marginTop: 2, fontFamily: "Helvetica-Bold" },
+  metaCell: { flex: 1, paddingRight: 12 },
+  metaLabel: { fontSize: 7, color: "#777", textTransform: "uppercase" },
+  metaValue: { fontSize: 10, fontFamily: "Helvetica-Bold", marginTop: 2 },
   metaSub: { fontSize: 8, color: "#555", marginTop: 1 },
-
-  table: { marginTop: 6, border: "1pt solid #ccc" },
-  tr: { flexDirection: "row", borderBottom: "0.5pt solid #e5e5e5" },
-  trHead: {
+  table: { border: "1pt solid #ccc", marginTop: 6 },
+  thead: {
     flexDirection: "row",
     backgroundColor: "#f0f0f0",
     borderBottom: "1pt solid #aaa",
   },
+  tr: { flexDirection: "row", borderBottom: "0.5pt solid #e5e5e5" },
   trTotals: {
     flexDirection: "row",
-    backgroundColor: "#fafafa",
     borderTop: "1pt solid #aaa",
-    fontFamily: "Helvetica-Bold",
+    backgroundColor: "#fafafa",
   },
+  th: { padding: 5, fontSize: 8, fontFamily: "Helvetica-Bold" },
   td: { padding: 5, fontSize: 8.5 },
-  tdHead: {
-    padding: 5,
-    fontSize: 8,
-    fontFamily: "Helvetica-Bold",
-    color: "#333",
-  },
   cDate: { width: "13%" },
   cVch: { width: "17%" },
   cPart: { width: "40%" },
   cDr: { width: "12%", textAlign: "right" },
   cCr: { width: "12%", textAlign: "right" },
   cBal: { width: "16%", textAlign: "right" },
-
-  subtle: { fontSize: 8, color: "#555" },
-  mutedCentered: {
-    fontSize: 8,
-    color: "#555",
-    marginTop: 14,
-    textAlign: "center",
-  },
-
   payBlock: {
-    marginTop: 20,
-    flexDirection: "row",
-    justifyContent: "space-between",
+    marginTop: 22,
+    padding: 12,
     border: "1pt solid #d5d5d5",
     borderRadius: 4,
-    padding: 12,
-    gap: 16,
+    flexDirection: "row",
   },
   payLeft: { flex: 1 },
-  payLabel: {
-    fontSize: 7,
-    color: "#777",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
+  payHeading: { fontSize: 10, fontFamily: "Helvetica-Bold", marginBottom: 6 },
+  payLabel: { fontSize: 7, color: "#777", textTransform: "uppercase" },
   payLine: { fontSize: 9, marginTop: 2 },
-  payHeading: {
-    fontSize: 10,
-    fontFamily: "Helvetica-Bold",
-    marginBottom: 6,
-  },
-  payQr: {
-    width: 80,
-    height: 80,
-    alignSelf: "center",
-  },
-  payQrCaption: {
-    fontSize: 7,
-    color: "#777",
-    textAlign: "center",
-    marginTop: 4,
-  },
-
-  signatoryBlock: {
-    marginTop: 22,
+  payQr: { width: 80, height: 80 },
+  payQrCaption: { fontSize: 7, color: "#777", textAlign: "center", marginTop: 4 },
+  sign: {
+    marginTop: 20,
     paddingTop: 12,
     borderTop: "0.5pt solid #999",
     flexDirection: "row",
     justifyContent: "space-between",
   },
-  signLeft: { width: "50%" },
-  signRight: { width: "40%", alignItems: "flex-end" },
-  signatureSpace: {
+  signL: { width: "55%" },
+  signR: { width: "40%", alignItems: "flex-end" },
+  signLine: {
     marginTop: 20,
     borderTop: "0.5pt solid #222",
+    paddingTop: 4,
     width: "80%",
     alignSelf: "flex-end",
-    paddingTop: 4,
   },
+  subtle: { fontSize: 8, color: "#555" },
   footer: {
     position: "absolute",
     bottom: 20,
@@ -163,36 +134,23 @@ function formatDate(d: Date): string {
   }).format(d);
 }
 
-/**
- * Extended firm bank-details input for the "pay us" block. Kept in a
- * separate type so the PDF module doesn't import Prisma.
- */
-export interface FirmPaymentDetails {
-  bankName?: string | null;
-  bankAccountName?: string | null;
-  bankAccountNumber?: string | null;
-  bankIfsc?: string | null;
-  upiId?: string | null;
+function line(label: string, value?: string | null) {
+  if (!value) return null;
+  return h(View, { style: { marginTop: 4 } },
+    h(Text, { style: styles.payLabel }, label),
+    h(Text, { style: styles.payLine }, value),
+  );
 }
 
-/**
- * Render the ledger statement PDF. Flattened — Document is constructed
- * inline inside renderToBuffer rather than wrapped in another functional
- * component. That pattern plays nicer with @react-pdf/renderer's
- * reconciler under Next.js RSC + bundler transforms (the "React error
- * #31" symptom surfaced from wrapping in a component).
- */
 export async function renderLedgerPdf(
   data: LedgerStatement,
   payment?: FirmPaymentDetails,
 ): Promise<Buffer> {
   const firmName = data.firm.name || "";
-  const partner = data.firm.partnerName || "";
   const frn = data.firm.frn || "";
+  const partner = data.firm.partnerName || "";
   const mno = data.firm.partnerMno || "";
 
-  // Pre-render the UPI QR so it can go into the payment block as an
-  // inline data-URL. Skip if no VPA — the block collapses to bank-only.
   let qrDataUrl: string | null = null;
   if (payment?.upiId) {
     try {
@@ -204,200 +162,169 @@ export async function renderLedgerPdf(
       });
       qrDataUrl = dataUrl;
     } catch {
-      // silently skip QR — bank block still renders
       qrDataUrl = null;
     }
   }
 
-  const hasPaymentBlock =
+  const hasPay =
     Boolean(payment?.bankName) ||
     Boolean(payment?.bankAccountNumber) ||
     Boolean(payment?.upiId);
 
-  return renderToBuffer(
-    <Document
-      title={"Ledger — " + data.party.name}
-      author={firmName}
-      subject="Ledger confirmation / statement"
-    >
-      <Page size="A4" style={styles.page}>
-        <View style={styles.headerBand}>
-          <View>
-            <Text style={styles.firmName}>{firmName}</Text>
-            <Text style={styles.firmSub}>Chartered Accountants</Text>
-            {frn ? <Text style={styles.firmSub}>{"FRN: " + frn}</Text> : null}
-          </View>
-          <View style={styles.titleRight}>
-            <Text style={styles.title}>LEDGER STATEMENT</Text>
-            <Text style={styles.periodLabel}>{data.period.label}</Text>
-          </View>
-        </View>
-
-        <View style={styles.metaRow}>
-          <View style={styles.metaCell}>
-            <Text style={styles.metaLabel}>Debtor</Text>
-            <Text style={styles.metaValue}>{data.party.name}</Text>
-            {data.party.address ? (
-              <Text style={styles.metaSub}>{data.party.address}</Text>
-            ) : null}
-          </View>
-          <View style={styles.metaCell}>
-            <Text style={styles.metaLabel}>In the books of</Text>
-            <Text style={styles.metaValue}>
-              {data.clientCompany.displayName}
-            </Text>
-            <Text style={styles.metaSub}>{"Managed by " + firmName}</Text>
-          </View>
-          <View style={styles.metaCell}>
-            <Text style={styles.metaLabel}>Period</Text>
-            <Text style={styles.metaValue}>
-              {data.period.from === "—"
-                ? data.period.to
-                : data.period.from + " → " + data.period.to}
-            </Text>
-            <Text style={styles.metaSub}>
-              {"Generated " + formatDate(data.generatedAt)}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.table}>
-          <View style={styles.trHead}>
-            <Text style={[styles.tdHead, styles.cDate]}>Date</Text>
-            <Text style={[styles.tdHead, styles.cVch]}>Voucher</Text>
-            <Text style={[styles.tdHead, styles.cPart]}>Particulars</Text>
-            <Text style={[styles.tdHead, styles.cDr]}>Debit</Text>
-            <Text style={[styles.tdHead, styles.cCr]}>Credit</Text>
-            <Text style={[styles.tdHead, styles.cBal]}>Balance</Text>
-          </View>
-
-          <View style={styles.tr}>
-            <Text style={[styles.td, styles.cDate]}>—</Text>
-            <Text style={[styles.td, styles.cVch]}>—</Text>
-            <Text style={[styles.td, styles.cPart]}>Opening balance</Text>
-            <Text style={[styles.td, styles.cDr]}>—</Text>
-            <Text style={[styles.td, styles.cCr]}>—</Text>
-            <Text style={[styles.td, styles.cBal]}>
-              {inr(data.openingBalance)}
-            </Text>
-          </View>
-
-          {data.rows.map((r, i) => (
-            <View key={i} style={styles.tr}>
-              <Text style={[styles.td, styles.cDate]}>{formatDate(r.date)}</Text>
-              <Text style={[styles.td, styles.cVch]}>{r.voucher}</Text>
-              <Text style={[styles.td, styles.cPart]}>{r.particulars}</Text>
-              <Text style={[styles.td, styles.cDr]}>
-                {r.debit > 0 ? inr(r.debit) : ""}
-              </Text>
-              <Text style={[styles.td, styles.cCr]}>
-                {r.credit > 0 ? inr(r.credit) : ""}
-              </Text>
-              <Text style={[styles.td, styles.cBal]}>
-                {inr(r.runningBalance)}
-              </Text>
-            </View>
-          ))}
-
-          <View style={styles.trTotals}>
-            <Text style={[styles.td, styles.cDate]}>{""}</Text>
-            <Text style={[styles.td, styles.cVch]}>{""}</Text>
-            <Text style={[styles.td, styles.cPart]}>
-              Totals · closing balance
-            </Text>
-            <Text style={[styles.td, styles.cDr]}>
-              {inr(data.totals.debit)}
-            </Text>
-            <Text style={[styles.td, styles.cCr]}>
-              {inr(data.totals.credit)}
-            </Text>
-            <Text style={[styles.td, styles.cBal]}>
-              {inr(data.closingBalance)}
-            </Text>
-          </View>
-        </View>
-
-        {data.rows.length === 0 ? (
-          <Text style={styles.mutedCentered}>
-            {"No transactions in this period. Closing balance " +
-              inr(data.closingBalance) +
-              "."}
-          </Text>
-        ) : null}
-
-        {hasPaymentBlock ? (
-          <View style={styles.payBlock}>
-            <View style={styles.payLeft}>
-              <Text style={styles.payHeading}>Pay us</Text>
-              {payment?.bankName ? (
-                <View>
-                  <Text style={styles.payLabel}>Bank</Text>
-                  <Text style={styles.payLine}>{payment.bankName}</Text>
-                </View>
-              ) : null}
-              {payment?.bankAccountName ? (
-                <View style={{ marginTop: 6 }}>
-                  <Text style={styles.payLabel}>Account name</Text>
-                  <Text style={styles.payLine}>{payment.bankAccountName}</Text>
-                </View>
-              ) : null}
-              {payment?.bankAccountNumber ? (
-                <View style={{ marginTop: 6 }}>
-                  <Text style={styles.payLabel}>Account number</Text>
-                  <Text style={styles.payLine}>{payment.bankAccountNumber}</Text>
-                </View>
-              ) : null}
-              {payment?.bankIfsc ? (
-                <View style={{ marginTop: 6 }}>
-                  <Text style={styles.payLabel}>IFSC</Text>
-                  <Text style={styles.payLine}>{payment.bankIfsc}</Text>
-                </View>
-              ) : null}
-              {payment?.upiId ? (
-                <View style={{ marginTop: 6 }}>
-                  <Text style={styles.payLabel}>UPI</Text>
-                  <Text style={styles.payLine}>{payment.upiId}</Text>
-                </View>
-              ) : null}
-            </View>
-            {qrDataUrl ? (
-              <View>
-                <Image src={qrDataUrl} style={styles.payQr} />
-                <Text style={styles.payQrCaption}>Scan any UPI app</Text>
-              </View>
-            ) : null}
-          </View>
-        ) : null}
-
-        <View style={styles.signatoryBlock}>
-          <View style={styles.signLeft}>
-            <Text style={styles.subtle}>
-              {"This statement is computer-generated from Tally data synced on " +
-                formatDate(data.generatedAt) +
-                ". Please reconcile and revert within 7 days of receipt."}
-            </Text>
-          </View>
-          <View style={styles.signRight}>
-            <Text style={styles.subtle}>{"For " + firmName}</Text>
-            <Text style={styles.subtle}>Chartered Accountants</Text>
-            <View style={styles.signatureSpace}>
-              <Text style={styles.subtle}>
-                {partner ? partner : "Partner signature"}
-              </Text>
-              {mno ? (
-                <Text style={styles.subtle}>{"M.No. " + mno}</Text>
-              ) : null}
-            </View>
-          </View>
-        </View>
-
-        <Text style={styles.footer} fixed>
-          {firmName +
-            (frn ? " · FRN " + frn : "") +
-            " · Confidential · Ledger as of " +
-            formatDate(data.generatedAt)}
-        </Text>
-      </Page>
-    </Document>,
+  // -------- Header --------
+  const header = h(View, { style: styles.header },
+    h(View, null,
+      h(Text, { style: styles.firmName }, firmName),
+      h(Text, { style: styles.firmSub }, "Chartered Accountants"),
+      frn ? h(Text, { style: styles.firmSub }, "FRN: " + frn) : null,
+    ),
+    h(View, null,
+      h(Text, { style: styles.title }, "LEDGER STATEMENT"),
+      h(Text, { style: styles.periodLabel }, data.period.label),
+    ),
   );
+
+  // -------- Meta row --------
+  const meta = h(View, { style: styles.metaRow },
+    h(View, { style: styles.metaCell },
+      h(Text, { style: styles.metaLabel }, "Debtor"),
+      h(Text, { style: styles.metaValue }, data.party.name),
+      data.party.address
+        ? h(Text, { style: styles.metaSub }, data.party.address)
+        : null,
+    ),
+    h(View, { style: styles.metaCell },
+      h(Text, { style: styles.metaLabel }, "In the books of"),
+      h(Text, { style: styles.metaValue }, data.clientCompany.displayName),
+      h(Text, { style: styles.metaSub }, "Managed by " + firmName),
+    ),
+    h(View, { style: styles.metaCell },
+      h(Text, { style: styles.metaLabel }, "Period"),
+      h(
+        Text,
+        { style: styles.metaValue },
+        data.period.from === "—"
+          ? data.period.to
+          : data.period.from + " → " + data.period.to,
+      ),
+      h(Text, { style: styles.metaSub }, "Generated " + formatDate(data.generatedAt)),
+    ),
+  );
+
+  // -------- Table --------
+  const headRow = h(View, { style: styles.thead },
+    h(Text, { style: [styles.th, styles.cDate] }, "Date"),
+    h(Text, { style: [styles.th, styles.cVch] }, "Voucher"),
+    h(Text, { style: [styles.th, styles.cPart] }, "Particulars"),
+    h(Text, { style: [styles.th, styles.cDr] }, "Debit"),
+    h(Text, { style: [styles.th, styles.cCr] }, "Credit"),
+    h(Text, { style: [styles.th, styles.cBal] }, "Balance"),
+  );
+
+  const openingRow = h(View, { style: styles.tr },
+    h(Text, { style: [styles.td, styles.cDate] }, "—"),
+    h(Text, { style: [styles.td, styles.cVch] }, "—"),
+    h(Text, { style: [styles.td, styles.cPart] }, "Opening balance"),
+    h(Text, { style: [styles.td, styles.cDr] }, "—"),
+    h(Text, { style: [styles.td, styles.cCr] }, "—"),
+    h(Text, { style: [styles.td, styles.cBal] }, inr(data.openingBalance)),
+  );
+
+  const dataRows = data.rows.map((r, i) =>
+    h(View, { key: "r" + i, style: styles.tr },
+      h(Text, { style: [styles.td, styles.cDate] }, formatDate(r.date)),
+      h(Text, { style: [styles.td, styles.cVch] }, r.voucher),
+      h(Text, { style: [styles.td, styles.cPart] }, r.particulars),
+      h(Text, { style: [styles.td, styles.cDr] }, r.debit > 0 ? inr(r.debit) : ""),
+      h(Text, { style: [styles.td, styles.cCr] }, r.credit > 0 ? inr(r.credit) : ""),
+      h(Text, { style: [styles.td, styles.cBal] }, inr(r.runningBalance)),
+    ),
+  );
+
+  const totalsRow = h(View, { style: styles.trTotals },
+    h(Text, { style: [styles.td, styles.cDate] }, ""),
+    h(Text, { style: [styles.td, styles.cVch] }, ""),
+    h(Text, { style: [styles.td, styles.cPart] }, "Totals · closing balance"),
+    h(Text, { style: [styles.td, styles.cDr] }, inr(data.totals.debit)),
+    h(Text, { style: [styles.td, styles.cCr] }, inr(data.totals.credit)),
+    h(Text, { style: [styles.td, styles.cBal] }, inr(data.closingBalance)),
+  );
+
+  const table = h(View, { style: styles.table },
+    headRow,
+    openingRow,
+    ...dataRows,
+    totalsRow,
+  );
+
+  // -------- Payment block --------
+  const payBlock = hasPay
+    ? h(View, { style: styles.payBlock },
+        h(View, { style: styles.payLeft },
+          h(Text, { style: styles.payHeading }, "Pay us"),
+          line("Bank", payment?.bankName),
+          line("Account name", payment?.bankAccountName),
+          line("Account number", payment?.bankAccountNumber),
+          line("IFSC", payment?.bankIfsc),
+          line("UPI", payment?.upiId),
+        ),
+        qrDataUrl
+          ? h(View, null,
+              h(Image, { src: qrDataUrl, style: styles.payQr }),
+              h(Text, { style: styles.payQrCaption }, "Scan any UPI app"),
+            )
+          : null,
+      )
+    : null;
+
+  // -------- Signatory --------
+  const signatory = h(View, { style: styles.sign },
+    h(View, { style: styles.signL },
+      h(
+        Text,
+        { style: styles.subtle },
+        "This statement is computer-generated from Tally data synced on " +
+          formatDate(data.generatedAt) +
+          ". Please reconcile and revert within 7 days of receipt.",
+      ),
+    ),
+    h(View, { style: styles.signR },
+      h(Text, { style: styles.subtle }, "For " + firmName),
+      h(Text, { style: styles.subtle }, "Chartered Accountants"),
+      h(View, { style: styles.signLine },
+        h(Text, { style: styles.subtle }, partner || "Partner signature"),
+        mno ? h(Text, { style: styles.subtle }, "M.No. " + mno) : null,
+      ),
+    ),
+  );
+
+  const footer = h(
+    Text,
+    { style: styles.footer, fixed: true },
+    firmName +
+      (frn ? " · FRN " + frn : "") +
+      " · Confidential · Ledger as of " +
+      formatDate(data.generatedAt),
+  );
+
+  const page = h(Page, { size: "A4", style: styles.page },
+    header,
+    meta,
+    table,
+    payBlock,
+    signatory,
+    footer,
+  );
+
+  const doc = h(
+    Document,
+    {
+      title: "Ledger — " + data.party.name,
+      author: firmName,
+      subject: "Ledger confirmation / statement",
+    },
+    page,
+  );
+
+  return renderToBuffer(doc);
 }
