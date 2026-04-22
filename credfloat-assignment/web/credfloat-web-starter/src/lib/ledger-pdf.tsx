@@ -1,3 +1,6 @@
+/** @jsxRuntime classic */
+/** @jsx React.createElement */
+import React from "react";
 import {
   Document,
   Page,
