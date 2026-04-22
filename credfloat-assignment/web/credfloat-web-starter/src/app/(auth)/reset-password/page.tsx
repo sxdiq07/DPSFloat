@@ -1,13 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState } from "react";
+import { Suspense, useActionState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft, CheckCircle2, Lock } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { resetPassword } from "./actions";
 
 export default function ResetPasswordPage() {
+  // useSearchParams forces a client-render bailout at build time.
+  // Wrapping in Suspense lets Next.js still prerender the shell.
+  return (
+    <Suspense fallback={null}>
+      <ResetPasswordInner />
+    </Suspense>
+  );
+}
+
+function ResetPasswordInner() {
   const params = useSearchParams();
   const token = params.get("token") ?? "";
 
