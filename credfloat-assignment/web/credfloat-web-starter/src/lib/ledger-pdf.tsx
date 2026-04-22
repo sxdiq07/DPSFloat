@@ -1,34 +1,40 @@
-import { createRequire } from "node:module";
 import type { LedgerStatement } from "@/lib/ledger-data";
 import { buildUpiQr } from "@/lib/upi-qr";
 
 /**
  * PDF render.
  *
- * Next.js 15 ships its own bundled React at `next/dist/compiled/react`
- * and aliases imports from server-side code to that copy. Meanwhile
- * @react-pdf/renderer does `require("react")` which resolves to the
- * app's node_modules/react. The two Reacts are different instances,
- * so element $$typeof symbols don't match and every renderToBuffer
- * call explodes with React error #31.
+ * Next.js 15 aliases `react` imports from server code to its bundled
+ * `next/dist/compiled/react`. @react-pdf/renderer uses the app's
+ * node_modules/react via its own resolver, so the two sides of the
+ * reconciler end up with different React instances → React error #31
+ * on every renderToBuffer call.
  *
- * Workaround: use Node's runtime `createRequire` to resolve BOTH
- * React and @react-pdf/renderer through the same module resolver
- * Node uses. No bundling, no aliasing, same React instance on both
- * sides of the reconciler.
+ * Fix: load BOTH React and @react-pdf/renderer via dynamic import with
+ * `webpackIgnore` magic comments. Webpack leaves those imports alone,
+ * Node's own ESM resolver handles them at runtime, both resolve to
+ * the same node_modules/react. Same React instance on both sides —
+ * reconciler is happy.
  */
 
-const nodeRequire = createRequire(import.meta.url);
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const React: any = nodeRequire("react");
+let _React: any = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const ReactPDF: any = nodeRequire("@react-pdf/renderer");
+let _ReactPDF: any = null;
 
-const { Document, Page, Text, View, Image, StyleSheet, renderToBuffer } =
-  ReactPDF;
-
-const h = React.createElement;
+async function loadRuntime() {
+  if (!_React) {
+    const mod = await import(/* webpackIgnore: true */ "react");
+    _React = (mod as { default?: unknown }).default ?? mod;
+  }
+  if (!_ReactPDF) {
+    const mod = await import(
+      /* webpackIgnore: true */ "@react-pdf/renderer"
+    );
+    _ReactPDF = (mod as { default?: unknown }).default ?? mod;
+  }
+  return { React: _React, ReactPDF: _ReactPDF };
+}
 
 export interface FirmPaymentDetails {
   bankName?: string | null;
@@ -37,94 +43,6 @@ export interface FirmPaymentDetails {
   bankIfsc?: string | null;
   upiId?: string | null;
 }
-
-const styles = StyleSheet.create({
-  page: {
-    padding: 36,
-    fontSize: 9,
-    fontFamily: "Helvetica",
-    color: "#111",
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    borderBottom: "1pt solid #333",
-    paddingBottom: 10,
-    marginBottom: 14,
-  },
-  firmName: { fontSize: 14, fontFamily: "Helvetica-Bold" },
-  firmSub: { fontSize: 8, color: "#555", marginTop: 2 },
-  title: { fontSize: 11, fontFamily: "Helvetica-Bold", textAlign: "right" },
-  periodLabel: { fontSize: 8, color: "#555", marginTop: 2, textAlign: "right" },
-  metaRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 12,
-  },
-  metaCell: { flex: 1, paddingRight: 12 },
-  metaLabel: { fontSize: 7, color: "#777", textTransform: "uppercase" },
-  metaValue: { fontSize: 10, fontFamily: "Helvetica-Bold", marginTop: 2 },
-  metaSub: { fontSize: 8, color: "#555", marginTop: 1 },
-  table: { border: "1pt solid #ccc", marginTop: 6 },
-  thead: {
-    flexDirection: "row",
-    backgroundColor: "#f0f0f0",
-    borderBottom: "1pt solid #aaa",
-  },
-  tr: { flexDirection: "row", borderBottom: "0.5pt solid #e5e5e5" },
-  trTotals: {
-    flexDirection: "row",
-    borderTop: "1pt solid #aaa",
-    backgroundColor: "#fafafa",
-  },
-  th: { padding: 5, fontSize: 8, fontFamily: "Helvetica-Bold" },
-  td: { padding: 5, fontSize: 8.5 },
-  cDate: { width: "13%" },
-  cVch: { width: "17%" },
-  cPart: { width: "40%" },
-  cDr: { width: "12%", textAlign: "right" },
-  cCr: { width: "12%", textAlign: "right" },
-  cBal: { width: "16%", textAlign: "right" },
-  payBlock: {
-    marginTop: 22,
-    padding: 12,
-    border: "1pt solid #d5d5d5",
-    borderRadius: 4,
-    flexDirection: "row",
-  },
-  payLeft: { flex: 1 },
-  payHeading: { fontSize: 10, fontFamily: "Helvetica-Bold", marginBottom: 6 },
-  payLabel: { fontSize: 7, color: "#777", textTransform: "uppercase" },
-  payLine: { fontSize: 9, marginTop: 2 },
-  payQr: { width: 80, height: 80 },
-  payQrCaption: { fontSize: 7, color: "#777", textAlign: "center", marginTop: 4 },
-  sign: {
-    marginTop: 20,
-    paddingTop: 12,
-    borderTop: "0.5pt solid #999",
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  signL: { width: "55%" },
-  signR: { width: "40%", alignItems: "flex-end" },
-  signLine: {
-    marginTop: 20,
-    borderTop: "0.5pt solid #222",
-    paddingTop: 4,
-    width: "80%",
-    alignSelf: "flex-end",
-  },
-  subtle: { fontSize: 8, color: "#555" },
-  footer: {
-    position: "absolute",
-    bottom: 20,
-    left: 36,
-    right: 36,
-    fontSize: 7,
-    color: "#888",
-    textAlign: "center",
-  },
-});
 
 function inr(n: number): string {
   const neg = n < 0;
@@ -143,20 +61,132 @@ function formatDate(d: Date): string {
   }).format(d);
 }
 
-function line(label: string, value?: string | null) {
-  if (!value) return null;
-  return h(
-    View,
-    { style: { marginTop: 4 } },
-    h(Text, { style: styles.payLabel }, label),
-    h(Text, { style: styles.payLine }, value),
-  );
-}
-
 export async function renderLedgerPdf(
   data: LedgerStatement,
   payment?: FirmPaymentDetails,
 ): Promise<Buffer> {
+  const { React, ReactPDF } = await loadRuntime();
+  const {
+    Document,
+    Page,
+    Text,
+    View,
+    Image,
+    StyleSheet,
+    renderToBuffer,
+  } = ReactPDF;
+  const h = React.createElement;
+
+  const styles = StyleSheet.create({
+    page: {
+      padding: 36,
+      fontSize: 9,
+      fontFamily: "Helvetica",
+      color: "#111",
+    },
+    header: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      borderBottom: "1pt solid #333",
+      paddingBottom: 10,
+      marginBottom: 14,
+    },
+    firmName: { fontSize: 14, fontFamily: "Helvetica-Bold" },
+    firmSub: { fontSize: 8, color: "#555", marginTop: 2 },
+    title: {
+      fontSize: 11,
+      fontFamily: "Helvetica-Bold",
+      textAlign: "right",
+    },
+    periodLabel: {
+      fontSize: 8,
+      color: "#555",
+      marginTop: 2,
+      textAlign: "right",
+    },
+    metaRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      marginBottom: 12,
+    },
+    metaCell: { flex: 1, paddingRight: 12 },
+    metaLabel: { fontSize: 7, color: "#777", textTransform: "uppercase" },
+    metaValue: {
+      fontSize: 10,
+      fontFamily: "Helvetica-Bold",
+      marginTop: 2,
+    },
+    metaSub: { fontSize: 8, color: "#555", marginTop: 1 },
+    table: { border: "1pt solid #ccc", marginTop: 6 },
+    thead: {
+      flexDirection: "row",
+      backgroundColor: "#f0f0f0",
+      borderBottom: "1pt solid #aaa",
+    },
+    tr: { flexDirection: "row", borderBottom: "0.5pt solid #e5e5e5" },
+    trTotals: {
+      flexDirection: "row",
+      borderTop: "1pt solid #aaa",
+      backgroundColor: "#fafafa",
+    },
+    th: { padding: 5, fontSize: 8, fontFamily: "Helvetica-Bold" },
+    td: { padding: 5, fontSize: 8.5 },
+    cDate: { width: "13%" },
+    cVch: { width: "17%" },
+    cPart: { width: "40%" },
+    cDr: { width: "12%", textAlign: "right" },
+    cCr: { width: "12%", textAlign: "right" },
+    cBal: { width: "16%", textAlign: "right" },
+    payBlock: {
+      marginTop: 22,
+      padding: 12,
+      border: "1pt solid #d5d5d5",
+      borderRadius: 4,
+      flexDirection: "row",
+    },
+    payLeft: { flex: 1 },
+    payHeading: {
+      fontSize: 10,
+      fontFamily: "Helvetica-Bold",
+      marginBottom: 6,
+    },
+    payLabel: { fontSize: 7, color: "#777", textTransform: "uppercase" },
+    payLine: { fontSize: 9, marginTop: 2 },
+    payQr: { width: 80, height: 80 },
+    payQrCaption: {
+      fontSize: 7,
+      color: "#777",
+      textAlign: "center",
+      marginTop: 4,
+    },
+    sign: {
+      marginTop: 20,
+      paddingTop: 12,
+      borderTop: "0.5pt solid #999",
+      flexDirection: "row",
+      justifyContent: "space-between",
+    },
+    signL: { width: "55%" },
+    signR: { width: "40%", alignItems: "flex-end" },
+    signLine: {
+      marginTop: 20,
+      borderTop: "0.5pt solid #222",
+      paddingTop: 4,
+      width: "80%",
+      alignSelf: "flex-end",
+    },
+    subtle: { fontSize: 8, color: "#555" },
+    footer: {
+      position: "absolute",
+      bottom: 20,
+      left: 36,
+      right: 36,
+      fontSize: 7,
+      color: "#888",
+      textAlign: "center",
+    },
+  });
+
   const firmName = data.firm.name || "";
   const frn = data.firm.frn || "";
   const partner = data.firm.partnerName || "";
@@ -181,6 +211,16 @@ export async function renderLedgerPdf(
     Boolean(payment?.bankName) ||
     Boolean(payment?.bankAccountNumber) ||
     Boolean(payment?.upiId);
+
+  const payLine = (label: string, value?: string | null) =>
+    !value
+      ? null
+      : h(
+          View,
+          { style: { marginTop: 4 } },
+          h(Text, { style: styles.payLabel }, label),
+          h(Text, { style: styles.payLine }, value),
+        );
 
   const header = h(
     View,
@@ -309,11 +349,11 @@ export async function renderLedgerPdf(
           View,
           { style: styles.payLeft },
           h(Text, { style: styles.payHeading }, "Pay us"),
-          line("Bank", payment?.bankName),
-          line("Account name", payment?.bankAccountName),
-          line("Account number", payment?.bankAccountNumber),
-          line("IFSC", payment?.bankIfsc),
-          line("UPI", payment?.upiId),
+          payLine("Bank", payment?.bankName),
+          payLine("Account name", payment?.bankAccountName),
+          payLine("Account number", payment?.bankAccountNumber),
+          payLine("IFSC", payment?.bankIfsc),
+          payLine("UPI", payment?.upiId),
         ),
         qrDataUrl
           ? h(
