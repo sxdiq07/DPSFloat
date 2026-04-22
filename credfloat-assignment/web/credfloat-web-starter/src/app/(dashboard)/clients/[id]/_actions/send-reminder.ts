@@ -16,6 +16,11 @@ import type { LedgerPeriodType } from "@prisma/client";
 const schema = z.object({
   invoiceId: z.string(),
   channel: z.enum(["EMAIL", "WHATSAPP"]),
+  // Optional staff-typed overrides from the Preview modal. When set,
+  // they replace the auto-rendered body / subject on that channel.
+  emailSubjectOverride: z.string().max(200).optional(),
+  emailBodyOverride: z.string().max(5000).optional(),
+  whatsappBodyOverride: z.string().max(4000).optional(),
 });
 
 export type SendReminderResult =
@@ -159,6 +164,8 @@ export async function sendReminderNow(
         template: selectTemplate(overdue),
         vars,
         attachments,
+        subjectOverride: parsed.data.emailSubjectOverride,
+        bodyOverride: parsed.data.emailBodyOverride,
         payment: firm
           ? {
               bankName: firm.bankName,
@@ -216,6 +223,7 @@ export async function sendReminderNow(
       billRef: invoice.billRef,
       amount: Number(invoice.outstandingAmount),
       ledgerUrl,
+      bodyOverride: parsed.data.whatsappBodyOverride,
       clickContext: {
         clientCompanyName: invoice.clientCompany.displayName,
         billDate: invoice.billDate,

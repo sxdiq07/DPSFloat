@@ -147,6 +147,7 @@ export function SendReminderButton({
         open={previewOpen}
         loading={previewLoading}
         preview={preview}
+        invoiceId={invoiceId}
         onClose={() => setPreviewOpen(false)}
       />
     </div>

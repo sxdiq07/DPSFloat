@@ -247,8 +247,27 @@ export async function sendReminderEmail(args: {
   attachments?: Array<{ filename: string; content: Buffer }>;
   /** Bank + UPI details that render as a "Pay us" block inside the email. */
   payment?: PaymentDetails;
+  /** Staff override for subject (from the Preview modal). */
+  subjectOverride?: string;
+  /** Staff override for the email body — plain text; gets wrapped in
+   *  the same htmlShell and the Pay-us block still gets injected. */
+  bodyOverride?: string;
 }): Promise<{ id: string; stubbed?: boolean }> {
-  const rendered = renderTemplate(args.template, args.vars);
+  const baseline = renderTemplate(args.template, args.vars);
+  const hasBodyOverride = Boolean(args.bodyOverride?.trim());
+  const hasSubjectOverride = Boolean(args.subjectOverride?.trim());
+  const subject = hasSubjectOverride ? args.subjectOverride!.trim() : baseline.subject;
+  const text = hasBodyOverride ? args.bodyOverride!.trim() : baseline.text;
+  const htmlBody = hasBodyOverride
+    ? htmlShell(
+        subject,
+        text
+          .split(/\n{2,}/)
+          .map((p) => `<p>${escape(p).replace(/\n/g, "<br/>")}</p>`)
+          .join(""),
+      )
+    : baseline.html;
+  const rendered = { subject, text, html: htmlBody };
 
   // Inject the "Pay us" block just before the sign-off paragraph. The
   // template's HTML ends with `<p>Regards,…</p>` or similar — we splice

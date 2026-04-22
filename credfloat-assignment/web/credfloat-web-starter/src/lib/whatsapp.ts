@@ -95,6 +95,8 @@ export async function sendWhatsAppReminder(args: {
   languageCode?: string;
   /** Public signed link to the debtor's ledger PDF (48h by default). */
   ledgerUrl?: string;
+  /** Staff-typed body from the Preview modal; wins over auto-render. */
+  bodyOverride?: string;
   /** Full context needed to render the click-to-chat message body. */
   clickContext?: {
     clientCompanyName: string;
@@ -111,19 +113,26 @@ export async function sendWhatsAppReminder(args: {
   // Click-to-chat mode: return a wa.me URL the UI opens in a new tab.
   // Preferred when no Meta API credentials are configured.
   if (!apiEnabled) {
-    if (args.clickContext) {
-      const clickUrl = buildWhatsAppClickUrl({
-        to: args.to,
-        partyName: args.partyName,
-        clientCompanyName: args.clickContext.clientCompanyName,
-        billRef: args.billRef,
-        billDate: args.clickContext.billDate,
-        dueDate: args.clickContext.dueDate,
-        amount: args.amount,
-        daysOverdue: args.clickContext.daysOverdue,
-        ledgerUrl: args.ledgerUrl,
-      });
-      if (clickUrl) {
+    if (args.clickContext || args.bodyOverride) {
+      // Staff override wins if present — it's the verbatim body the
+      // Preview modal let them edit.
+      const text = args.bodyOverride?.trim()
+        ? args.bodyOverride.trim()
+        : args.clickContext
+          ? renderWhatsAppText({
+              partyName: args.partyName,
+              clientCompanyName: args.clickContext.clientCompanyName,
+              billRef: args.billRef,
+              billDate: args.clickContext.billDate,
+              dueDate: args.clickContext.dueDate,
+              amount: args.amount,
+              daysOverdue: args.clickContext.daysOverdue,
+              ledgerUrl: args.ledgerUrl,
+            })
+          : "";
+      const normalizedTo = normalizePhone(args.to);
+      if (normalizedTo.length >= 10 && text) {
+        const clickUrl = `https://wa.me/${normalizedTo}?text=${encodeURIComponent(text)}`;
         return { id: `wa-click-${Date.now()}`, clickUrl };
       }
     }
