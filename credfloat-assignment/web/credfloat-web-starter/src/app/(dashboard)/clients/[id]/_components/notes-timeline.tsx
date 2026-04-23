@@ -131,14 +131,14 @@ export function NotesTimeline({
                 <div className="flex gap-4">
                   <div className="relative shrink-0">
                     <div
-                      className="flex h-8 w-8 items-center justify-center rounded-full text-white"
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-[#f5f5f4]"
                       style={{
                         background:
                           e.kind === "note"
-                            ? "linear-gradient(135deg, #0a84ff, #5e5ce6)"
+                            ? "#1d1d1f"
                             : e.kind === "reminder"
-                              ? "linear-gradient(135deg, #30d158, #34c7b8)"
-                              : "linear-gradient(135deg, #ff9f0a, #ff6b3d)",
+                              ? "#1f7a4a"
+                              : "#92400e",
                       }}
                       aria-hidden
                     >

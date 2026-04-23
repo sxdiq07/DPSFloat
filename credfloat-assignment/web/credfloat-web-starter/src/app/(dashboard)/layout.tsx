@@ -43,10 +43,9 @@ export default async function DashboardLayout({
             <span
               className="inline-flex h-6 w-6 items-center justify-center rounded-lg"
               style={{
-                background:
-                  "linear-gradient(135deg, #0a84ff 0%, #0071e3 50%, #0040dd 100%)",
+                background: "#1d1d1f",
                 boxShadow:
-                  "0 2px 8px -2px rgba(0,113,227,0.5), inset 0 1px 0 rgba(255,255,255,0.2)",
+                  "0 1px 2px rgba(29,29,31,0.12), inset 0 1px 0 rgba(255,255,255,0.06)",
               }}
               aria-hidden
             >

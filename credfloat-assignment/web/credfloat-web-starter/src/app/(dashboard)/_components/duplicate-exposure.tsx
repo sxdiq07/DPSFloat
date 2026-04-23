@@ -70,13 +70,14 @@ export function DuplicateExposure({ groups }: { groups: DupGroup[] }) {
               >
                 <div
                   aria-hidden
-                  className="flex h-10 w-10 items-center justify-center rounded-xl text-white"
+                  className="flex h-10 w-10 items-center justify-center rounded-lg text-[#f5f5f4]"
                   style={{
-                    background:
-                      "linear-gradient(135deg, #5e5ce6, #bf5af2)",
+                    background: "#1d1d1f",
+                    boxShadow:
+                      "inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 2px rgba(29,29,31,0.06)",
                   }}
                 >
-                  <Users2 className="h-4 w-4" />
+                  <Users2 className="h-4 w-4" strokeWidth={1.5} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline justify-between gap-4">

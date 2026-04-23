@@ -183,18 +183,18 @@ export function PromisesPanel({
                 className={`grid grid-cols-[auto_1fr_auto] items-center gap-5 px-8 py-4 ${i > 0 ? "border-t border-subtle" : ""}`}
               >
                 <div
-                  className="flex h-10 w-10 items-center justify-center rounded-xl text-white"
+                  className="flex h-10 w-10 items-center justify-center rounded-lg text-[#f5f5f4]"
                   style={{
                     background:
                       p.status === "KEPT"
-                        ? "linear-gradient(135deg, #30d158, #34c7b8)"
+                        ? "#1f7a4a"
                         : p.status === "BROKEN"
-                          ? "linear-gradient(135deg, #ff453a, #ff375f)"
-                          : "linear-gradient(135deg, #ff9f0a, #ff6b3d)",
+                          ? "#b91c1c"
+                          : "#92400e",
                   }}
                   aria-hidden
                 >
-                  <Sparkles className="h-4 w-4" />
+                  <Sparkles className="h-3.5 w-3.5" strokeWidth={1.5} />
                 </div>
 
                 <div className="min-w-0">

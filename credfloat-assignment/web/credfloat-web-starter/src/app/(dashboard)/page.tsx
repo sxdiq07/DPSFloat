@@ -513,11 +513,15 @@ export default async function OverviewPage() {
                     style={{ background: "var(--color-accent-blue)" }}
                   />
 
-                  {/* Initials avatar */}
+                  {/* Initials avatar — uniform ink monogram for a
+                      restrained, institutional look */}
                   <div
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[14px] font-semibold text-white"
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-[13px] font-medium tracking-wide"
                     style={{
-                      background: `linear-gradient(135deg, hsl(${(i * 47) % 360} 70% 55%), hsl(${(i * 47 + 30) % 360} 80% 45%))`,
+                      background: "#1d1d1f",
+                      color: "#f5f5f4",
+                      boxShadow:
+                        "inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 2px rgba(29,29,31,0.06)",
                     }}
                     aria-hidden
                   >
@@ -541,9 +545,7 @@ export default async function OverviewPage() {
                           style={{
                             width: `${widthPct}%`,
                             background:
-                              c.overdue > 0
-                                ? "linear-gradient(90deg, #ff9f0a, #ff453a)"
-                                : "linear-gradient(90deg, #0a84ff, #5e5ce6)",
+                              c.overdue > 0 ? "#b91c1c" : "#1d1d1f",
                           }}
                         />
                       </div>

@@ -5,7 +5,6 @@ type Node = {
   icon: React.ReactNode;
   title: string;
   detail: string;
-  gradient: string;
 };
 
 export function PipelineStory({
@@ -26,38 +25,33 @@ export function PipelineStory({
   const nodes: Node[] = [
     {
       key: "tally",
-      icon: <Database className="h-4 w-4" />,
+      icon: <Database className="h-[18px] w-[18px]" strokeWidth={1.5} />,
       title: "Tally Prime",
       detail: `${clientCount} ${clientCount === 1 ? "company" : "companies"}`,
-      gradient: "linear-gradient(135deg, #5e5ce6, #bf5af2)",
     },
     {
       key: "connector",
-      icon: <Cable className="h-4 w-4" />,
+      icon: <Cable className="h-[18px] w-[18px]" strokeWidth={1.5} />,
       title: "Connector",
       detail: "ODBC · 1.9s",
-      gradient: "linear-gradient(135deg, #ff9f0a, #ff6b3d)",
     },
     {
       key: "cloud",
-      icon: <CloudCog className="h-4 w-4" />,
+      icon: <CloudCog className="h-[18px] w-[18px]" strokeWidth={1.5} />,
       title: "Ledger Cloud",
       detail: `${partyCount.toLocaleString("en-IN")} ledgers`,
-      gradient: "linear-gradient(135deg, #0a84ff, #0071e3)",
     },
     {
       key: "channels",
-      icon: <MessageSquare className="h-4 w-4" />,
+      icon: <MessageSquare className="h-[18px] w-[18px]" strokeWidth={1.5} />,
       title: "Channels",
       detail: `${remindersToday} today`,
-      gradient: "linear-gradient(135deg, #30d158, #34c7b8)",
     },
     {
       key: "debtors",
-      icon: <UserCircle2 className="h-4 w-4" />,
+      icon: <UserCircle2 className="h-[18px] w-[18px]" strokeWidth={1.5} />,
       title: "Debtors",
       detail: `${reachableCount} reachable`,
-      gradient: "linear-gradient(135deg, #ff453a, #ff375f)",
     },
   ];
 
@@ -71,14 +65,7 @@ export function PipelineStory({
           </p>
           <h2 className="mt-3 text-[26px] font-semibold leading-[1.15] tracking-tight text-ink">
             Today, Ledger is tracking{" "}
-            <span
-              style={{
-                background: "linear-gradient(135deg, #0a84ff, #5e5ce6 60%, #bf5af2)",
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-                backgroundClip: "text",
-              }}
-            >
+            <span className="tabular font-semibold text-ink">
               {totalOutstandingCompact}
             </span>{" "}
             across {clientCount} {clientCount === 1 ? "client" : "clients"} and{" "}
@@ -149,13 +136,19 @@ function PipelineNode({ node }: { node: Node }) {
   return (
     <div className="flex flex-col items-center text-center">
       <div
-        className="flex h-12 w-12 items-center justify-center rounded-2xl text-white shadow-[var(--shadow-apple-sm)]"
-        style={{ background: node.gradient }}
+        className="flex h-11 w-11 items-center justify-center rounded-xl text-[#f5f5f4]"
+        style={{
+          background: "#1d1d1f",
+          boxShadow:
+            "inset 0 1px 0 rgba(255,255,255,0.06), 0 1px 2px rgba(29,29,31,0.08)",
+        }}
         aria-hidden
       >
         {node.icon}
       </div>
-      <div className="mt-3 text-[14px] font-semibold text-ink">{node.title}</div>
+      <div className="mt-3 text-[13.5px] font-medium tracking-tight text-ink">
+        {node.title}
+      </div>
       <div className="tabular mt-0.5 text-[11.5px] text-ink-3">
         {node.detail}
       </div>
@@ -176,11 +169,9 @@ function PipelineConnector({ delay }: { delay: number }) {
         }}
       >
         <span
-          className="block h-1.5 w-1.5 rounded-full"
+          className="block h-1 w-1 rounded-full"
           style={{
-            background:
-              "linear-gradient(135deg, #0a84ff, #5e5ce6)",
-            boxShadow: "0 0 8px rgba(10,132,255,0.6)",
+            background: "#1d1d1f",
           }}
         />
       </span>
