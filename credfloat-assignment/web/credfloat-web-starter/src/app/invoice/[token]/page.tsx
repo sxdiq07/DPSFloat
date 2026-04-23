@@ -95,7 +95,19 @@ export default async function PublicInvoicePage({
             Amount due
           </div>
           <div className="tabular mt-2 text-[40px] font-semibold leading-none text-ink">
-            {formatINR(outstanding)}
+            <span
+              style={{
+                fontFamily:
+                  'Arial, "Segoe UI", "Noto Sans", Roboto, sans-serif',
+                fontWeight: 500,
+                marginRight: "0.08em",
+              }}
+            >
+              ₹
+            </span>
+            {new Intl.NumberFormat("en-IN", {
+              maximumFractionDigits: 0,
+            }).format(outstanding)}
           </div>
           <dl className="mt-6 grid grid-cols-2 gap-4 text-[13px]">
             <div>
