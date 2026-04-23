@@ -148,20 +148,26 @@ export async function buildLedgerStatement(
     },
   });
 
-  // Opening balance. If the period doesn't have a lower bound (all
-  // history), opening = Party.openingBalance (Tally's carry-forward).
-  // If there's a lower bound, opening = Tally carry-forward + sum of
-  // entries BEFORE the window.
-  let openingBalance = Number(party.openingBalance ?? 0);
-  if (start) {
-    const priorAgg = await prisma.ledgerEntry.aggregate({
-      where: { partyId, voucherDate: { lt: start } },
-      _sum: { debit: true, credit: true },
-    });
-    const priorDebit = Number(priorAgg._sum.debit ?? 0);
-    const priorCredit = Number(priorAgg._sum.credit ?? 0);
-    openingBalance += priorDebit - priorCredit;
-  }
+  // Derive opening from Party.closingBalance (Tally's current-net truth)
+  // minus the net movement of the entries we're about to display. This
+  // guarantees the running balance lands at the correct Tally closing
+  // regardless of what FY Tally is configured for, and avoids the
+  // double-count trap of adding Party.openingBalance (an FY-opening
+  // field) on top of entries that already cover that FY's transactions.
+  const displayedDebit = entries.reduce((s, e) => s + Number(e.debit), 0);
+  const displayedCredit = entries.reduce((s, e) => s + Number(e.credit), 0);
+  // If the view ends before "now", strip entries after the end-date
+  // out of the closing we're comparing against.
+  const afterEndAgg = await prisma.ledgerEntry.aggregate({
+    where: { partyId, voucherDate: { gt: end } },
+    _sum: { debit: true, credit: true },
+  });
+  const afterDebit = Number(afterEndAgg._sum.debit ?? 0);
+  const afterCredit = Number(afterEndAgg._sum.credit ?? 0);
+  const currentClosing = Number(party.closingBalance ?? 0);
+  const closingAtViewEnd = currentClosing - (afterDebit - afterCredit);
+  const openingBalance =
+    closingAtViewEnd - (displayedDebit - displayedCredit);
 
   let running = openingBalance;
   let totalDebit = 0;

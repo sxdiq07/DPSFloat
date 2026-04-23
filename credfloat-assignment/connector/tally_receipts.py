@@ -331,14 +331,16 @@ def fetch_receipts(
             if total_amount <= 0:
                 continue
 
+            # Capture ALL bill allocation types, not just "Agst Ref".
+            # The allocation engine downstream only matches
+            # TALLY_BILLWISE audit rows for bills that exist in our open
+            # set (via invoiceByRef lookup), so New Ref / On Account
+            # entries naturally produce no audit rows. But their mere
+            # presence signals "Tally has already resolved this receipt
+            # — don't FIFO it," which prevents advance receipts from
+            # being silently reapplied to unrelated open bills.
             bill_refs: list[BillRefAllocation] = []
             for alloc in entry.iter("BILLALLOCATIONS.LIST"):
-                bill_type = (alloc.findtext("BILLTYPE") or "").strip()
-                # "Agst Ref" = allocation to an existing bill. "New Ref" =
-                # advance that becomes an opening bill of its own, not an
-                # allocation. Ignore anything else (rare, e.g. "On Account").
-                if bill_type != "Agst Ref":
-                    continue
                 bill_ref = (alloc.findtext("NAME") or "").strip()
                 amt = abs(_parse_amount(alloc.findtext("AMOUNT")))
                 if not bill_ref or amt <= 0:
