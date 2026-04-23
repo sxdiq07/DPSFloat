@@ -31,8 +31,18 @@ Tally XML voucher shape we care about:
     ...
   </VOUCHER>
 
-Sign convention (per Tally): positive AMOUNT = debit side; negative =
-credit side. For each voucher, we emit one record per entry whose
+Sign convention (per Tally): each ledger line carries both a signed
+AMOUNT and an ISDEEMEDPOSITIVE flag. Different Tally builds emit
+these in different combinations for the same semantic entry — e.g. a
+Cr debtor can appear as "AMOUNT=-X, flag=Yes" on one build and
+"AMOUNT=+X, flag=No" on another. The robust rule is:
+
+    effective = -AMOUNT if flag == "No" else AMOUNT
+    effective > 0  →  Dr (debit)
+    effective < 0  →  Cr (credit)
+
+Both encodings resolve to the same Dr/Cr outcome. For each voucher
+we emit one record per entry whose
 LEDGERNAME is among the known debtor ledgers (passed in by the caller).
 Counterparty is inferred as the main "other side" of the voucher —
 typically the biggest non-debtor line, or falls back to PARTYLEDGERNAME.
@@ -273,6 +283,14 @@ def fetch_day_book(
             # Some Tally builds use a different element name.
             entries_list = list(voucher.iter("LEDGERENTRIES.LIST"))
 
+        # Resolve Dr/Cr using BOTH the AMOUNT sign and the
+        # ISDEEMEDPOSITIVE flag. Tally's XML is inconsistent across
+        # versions: some builds emit signed AMOUNTs with the flag always
+        # "Yes", others emit unsigned AMOUNTs with the flag indicating
+        # direction. The robust rule is to treat ISDEEMEDPOSITIVE="No"
+        # as a sign flip, then read Dr/Cr from the effective sign:
+        #   effective = -AMOUNT if flag == "No" else AMOUNT
+        #   effective > 0  → Dr (debit);  effective < 0  → Cr (credit)
         debtor_lines = []
         non_debtor_lines = []
         for entry in entries_list:
@@ -280,10 +298,12 @@ def fetch_day_book(
             if not ledger_name:
                 continue
             amount = _parse_amount(entry.findtext("AMOUNT"))
+            flag = (entry.findtext("ISDEEMEDPOSITIVE") or "").strip().lower()
+            effective = -amount if flag == "no" else amount
             if ledger_name in debtor_ledger_names:
-                debtor_lines.append((ledger_name, amount))
+                debtor_lines.append((ledger_name, effective))
             else:
-                non_debtor_lines.append((ledger_name, amount))
+                non_debtor_lines.append((ledger_name, effective))
 
         if not debtor_lines:
             skipped_no_debtor += 1
@@ -296,11 +316,11 @@ def fetch_day_book(
         elif party_ledger and party_ledger not in debtor_ledger_names:
             counterparty = party_ledger
 
-        for ledger_name, amt in debtor_lines:
-            debit = amt if amt > 0 else 0.0
-            credit = -amt if amt < 0 else 0.0
-            if debit == 0.0 and credit == 0.0:
+        for ledger_name, eff in debtor_lines:
+            if eff == 0.0:
                 continue
+            debit = eff if eff > 0 else 0.0
+            credit = -eff if eff < 0 else 0.0
             entries.append(
                 LedgerEntryRecord(
                     company=company_name,

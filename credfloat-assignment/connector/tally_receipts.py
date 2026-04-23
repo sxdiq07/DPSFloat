@@ -12,10 +12,16 @@ posted via Journal, and year-end reclasses all reduce debtor balance at
 the ledger level. If we only synced Receipt vouchers, our invoice
 residuals would overstate what the debtor actually owes.
 
-We only keep entries whose signed AMOUNT is negative (i.e. the debtor
-is being credited). Positive-amount entries on a debtor ledger mean
-the journal is INCREASING the debt (e.g. interest charged) — we can't
-treat those as receipts without mis-applying them to existing bills.
+We only keep entries whose EFFECTIVE sign is negative — i.e. the
+debtor is being credited (balance reduced). The effective sign is
+computed from AMOUNT and ISDEEMEDPOSITIVE together, because
+different Tally builds represent the same Cr entry in opposite ways:
+
+    effective = -AMOUNT if ISDEEMEDPOSITIVE == "No" else AMOUNT
+    effective < 0  →  Cr on debtor (receipt / credit note / bad-debt
+                      write-off); these are what we FIFO against bills.
+    effective > 0  →  Dr on debtor (e.g. interest charged via Journal);
+                      skipped so we don't mis-apply to existing bills.
 
 Observed Tally Prime 7.x schema:
 
@@ -303,14 +309,16 @@ def fetch_receipts(
         multi = len(debtor_entries) > 1
         for ledger_name, entry in debtor_entries:
             raw_amount = _parse_amount(entry.findtext("AMOUNT"))
-            # Only process entries that REDUCE debtor balance.
-            # Convention: negative AMOUNT on a debtor ledger line =
-            # credit (reduces debt). Positive = debit (increases debt,
-            # e.g. interest charged via Journal) — those aren't
-            # receipt-like and must not be FIFO'd against existing bills.
-            if raw_amount >= 0:
+            flag = (entry.findtext("ISDEEMEDPOSITIVE") or "").strip().lower()
+            # Effective sign = AMOUNT with ISDEEMEDPOSITIVE applied as a
+            # sign flip. Only keep entries that REDUCE debtor balance,
+            # i.e. effective < 0 (Cr on the debtor ledger). Positive
+            # effective = Dr (e.g. interest charged via Journal) — those
+            # aren't receipt-like and must not be FIFO'd against bills.
+            effective = -raw_amount if flag == "no" else raw_amount
+            if effective >= 0:
                 continue
-            total_amount = abs(raw_amount)
+            total_amount = abs(effective)
             if total_amount <= 0:
                 continue
 
