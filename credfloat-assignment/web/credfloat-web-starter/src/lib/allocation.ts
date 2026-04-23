@@ -199,8 +199,23 @@ export async function allocateForParty(
     return a.id.localeCompare(b.id);
   });
 
+  // Budget cap — FIFO should only close the gap between sum(outstandingAmount)
+  // and closingBalance (Tally's ledger truth). Any consumption beyond that
+  // would zero out bills that Tally still considers open. If no closingBalance
+  // was passed, fall back to unlimited (pre-budget behavior).
+  const initialBillSum = [...invoiceRemaining.values()].reduce(
+    (s, v) => s + v,
+    0,
+  );
+  const fifoBudget =
+    typeof closingBalance === "number"
+      ? round2(Math.max(0, initialBillSum - Math.max(0, closingBalance)))
+      : Infinity;
+  let fifoRemaining = fifoBudget;
+
   let fifoApplied = 0;
   for (const r of receiptsOrdered) {
+    if (fifoRemaining <= 0.01) break;
     // Skip receipts that came in with bill-refs. Tally already decided
     // which bills they cover — if some of those bills weren't in our
     // open-invoice set, it's because Tally has already closed them.
@@ -211,6 +226,7 @@ export async function allocateForParty(
     if (recLeft <= 0) continue;
     for (const inv of invoicesSortedByDate) {
       if (recLeft <= 0) break;
+      if (fifoRemaining <= 0.01) break;
       const invCap = invoiceRemaining.get(inv.id) ?? 0;
       if (invCap <= 0) continue;
       // Chronology guard: a receipt can only pay a bill that was
@@ -218,7 +234,7 @@ export async function allocateForParty(
       // old on-account receipts (for bills Tally has long closed
       // and we no longer see) would FIFO onto today's open bills.
       if (r.receiptDate && inv.billDate > r.receiptDate) continue;
-      const applied = round2(Math.min(recLeft, invCap));
+      const applied = round2(Math.min(recLeft, invCap, fifoRemaining));
       if (applied <= 0) continue;
 
       // If an earlier pass already created a row for this (receipt,invoice),
@@ -239,6 +255,7 @@ export async function allocateForParty(
       invoiceRemaining.set(inv.id, round2(invCap - applied));
       recLeft = round2(recLeft - applied);
       fifoApplied += applied;
+      fifoRemaining = round2(fifoRemaining - applied);
     }
     receiptRemaining.set(r.id, recLeft);
   }
