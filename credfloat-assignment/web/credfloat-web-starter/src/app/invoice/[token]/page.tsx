@@ -96,14 +96,10 @@ export default async function PublicInvoicePage({
           </div>
           <div className="tabular mt-2 text-[40px] font-semibold leading-none text-ink">
             <span
-              style={{
-                fontFamily:
-                  'Arial, "Segoe UI", "Noto Sans", Roboto, sans-serif',
-                fontWeight: 500,
-                marginRight: "0.08em",
-              }}
+              className="mr-2 text-[22px] font-medium text-ink-3"
+              style={{ letterSpacing: "0.02em" }}
             >
-              ₹
+              INR
             </span>
             {new Intl.NumberFormat("en-IN", {
               maximumFractionDigits: 0,
