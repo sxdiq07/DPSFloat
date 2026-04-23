@@ -40,6 +40,12 @@ export type ReceiptInput = {
   amount: number;
   /** Optional explicit allocations from Tally's BILLALLOCATIONS. */
   billRefs?: BillRefAllocation[];
+  /**
+   * Optional receipt date. When present, FIFO only allocates this
+   * receipt onto bills whose billDate is ≤ receiptDate — a receipt
+   * physically cannot pay a bill that hadn't been raised yet.
+   */
+  receiptDate?: Date;
 };
 
 export type AllocationSummary = {
@@ -207,6 +213,11 @@ export async function allocateForParty(
       if (recLeft <= 0) break;
       const invCap = invoiceRemaining.get(inv.id) ?? 0;
       if (invCap <= 0) continue;
+      // Chronology guard: a receipt can only pay a bill that was
+      // already raised by the receipt's date. Without this check,
+      // old on-account receipts (for bills Tally has long closed
+      // and we no longer see) would FIFO onto today's open bills.
+      if (r.receiptDate && inv.billDate > r.receiptDate) continue;
       const applied = round2(Math.min(recLeft, invCap));
       if (applied <= 0) continue;
 
@@ -330,14 +341,30 @@ export async function allocateForParty(
     invoicesTouched = invUpdates.length;
   }
 
-  // Party advance = unconsumed portion of *on-account* receipts only.
-  // A bill-wise receipt whose refs pointed to closed bills shouldn't
-  // count as advance — Tally already consumed it against those bills,
-  // we just don't see them. Only truly unallocated (no-bill-refs)
-  // receipts that exceeded open bills represent real advance on file.
+  // Party advance = unconsumed portion of *on-account* receipts that
+  // are chronologically relevant to the bills we currently see. We
+  // filter two kinds out:
+  //   1. Bill-wise receipts — Tally already consumed those against
+  //      specific bills (even if some of those bills are no longer in
+  //      our open set).
+  //   2. "Stranded" on-account receipts whose receiptDate predates
+  //      every currently-open bill. Those paid bills Tally has since
+  //      closed and that we no longer sync — they're historical noise,
+  //      not current credit on file.
+  const oldestOpenBillDate =
+    invoicesSortedByDate.length > 0
+      ? invoicesSortedByDate[0].billDate
+      : null;
   let advanceLeft = 0;
   for (const r of receipts) {
     if (r.billRefs && r.billRefs.length > 0) continue;
+    if (
+      oldestOpenBillDate &&
+      r.receiptDate &&
+      r.receiptDate < oldestOpenBillDate
+    ) {
+      continue;
+    }
     advanceLeft += receiptRemaining.get(r.id) ?? 0;
   }
   advanceLeft = round2(advanceLeft);
@@ -399,7 +426,11 @@ export async function allocateAllDirty(
           tx,
           partyId,
           invoices,
-          receipts.map((r) => ({ id: r.id, amount: Number(r.amount) })),
+          receipts.map((r) => ({
+            id: r.id,
+            amount: Number(r.amount),
+            receiptDate: r.receiptDate,
+          })),
         ),
       { maxWait: 10_000, timeout: 120_000 },
     );

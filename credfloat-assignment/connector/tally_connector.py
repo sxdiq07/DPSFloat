@@ -24,7 +24,7 @@ import os
 import sys
 import json
 import logging
-from datetime import datetime, timezone, date, timedelta
+from datetime import datetime, timezone
 from dataclasses import dataclass, asdict, field
 from typing import Optional
 
@@ -254,33 +254,15 @@ def main():
                 log.info(f"  {c.tally_name}: {len(invoices)} bill-wise entries")
                 all_invoices.extend(invoices)
 
-            # Scope the historical window for receipts + day book. Anchor
-            # on the oldest currently-open bill so we don't pull receipts
-            # for bills that Tally closed years ago — those receipts have
-            # no matching open bill in our DB and would otherwise land as
-            # phantom "advance" in the allocation engine. A 60-day buffer
-            # catches advances that post-dated the bill they cover.
-            receipts_from: Optional[date] = None
-            if invoices:
-                oldest_bill = min(
-                    (datetime.fromisoformat(i.bill_date).date() for i in invoices),
-                    default=None,
-                )
-                if oldest_bill:
-                    receipts_from = oldest_bill - timedelta(days=60)
-
             # Receipt vouchers with their BILLALLOCATIONS — feeds the
-            # cloud-side FIFO/bill-wise allocation engine.
+            # cloud-side FIFO/bill-wise allocation engine. Pull everything
+            # Tally has; filtering (e.g. which receipts can plausibly pay
+            # which bills) happens downstream in the allocation engine.
             if not SKIP_RECEIPTS:
                 receipts = fetch_receipts(
-                    c.tally_name,
-                    tally_url=TALLY_HTTP_URL,
-                    from_date=receipts_from,
+                    c.tally_name, tally_url=TALLY_HTTP_URL
                 )
-                log.info(
-                    f"  {c.tally_name}: {len(receipts)} receipts "
-                    f"(from {receipts_from or 'all-time'})"
-                )
+                log.info(f"  {c.tally_name}: {len(receipts)} receipts")
                 all_receipts.extend(receipts)
 
             # Full Day Book — every voucher type — for drill-down parity
