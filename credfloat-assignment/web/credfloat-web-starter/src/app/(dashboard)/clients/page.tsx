@@ -5,6 +5,11 @@ import { formatDistanceToNow } from "date-fns";
 import { PageHeader } from "@/components/ui/page-header";
 import { ClientsTable } from "./_components/clients-table";
 import { scoreClient, type Grade } from "@/lib/scoring";
+import {
+  calibrateBaseRates,
+  computeForecast,
+  debtorVelocityMultipliers,
+} from "@/lib/forecast";
 
 export const dynamic = "force-dynamic";
 
@@ -137,6 +142,84 @@ export default async function ClientsPage({
     if (arr) arr[idx] += Number(r.amount);
   }
 
+  // Per-client 30-day cash-inflow forecast
+  const [fcBaseRates, fcVelocity, fcInvoices, fcPromises] = await Promise.all([
+    calibrateBaseRates(firmId),
+    debtorVelocityMultipliers(firmId),
+    prisma.invoice.findMany({
+      where: {
+        clientCompanyId: { in: ids },
+        status: "OPEN",
+        outstandingAmount: { gt: 0 },
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        partyId: true,
+        clientCompanyId: true,
+        outstandingAmount: true,
+        ageBucket: true,
+      },
+    }),
+    prisma.promiseToPay.findMany({
+      where: {
+        status: "OPEN",
+        party: { clientCompanyId: { in: ids } },
+        promisedBy: {
+          gte: new Date(),
+          lt: new Date(Date.now() + 30 * 86400_000),
+        },
+      },
+      include: {
+        party: {
+          select: {
+            id: true,
+            promises: {
+              where: { status: { in: ["KEPT", "BROKEN"] } },
+              select: { status: true },
+            },
+          },
+        },
+      },
+    }),
+  ]);
+  const fcPromisesByParty = new Map<
+    string,
+    { amount: number; promisedBy: Date; keepRate: number }
+  >();
+  for (const p of fcPromises) {
+    const c = p.party.promises;
+    const kept = c.filter((x) => x.status === "KEPT").length;
+    const total = c.length;
+    fcPromisesByParty.set(p.partyId, {
+      amount: Number(p.amount),
+      promisedBy: p.promisedBy,
+      keepRate: total === 0 ? 0.6 : kept / total,
+    });
+  }
+  // Group invoices by client so we can run the forecast per client.
+  const invoicesByClient = new Map<string, typeof fcInvoices>();
+  for (const inv of fcInvoices) {
+    const arr = invoicesByClient.get(inv.clientCompanyId) ?? [];
+    arr.push(inv);
+    invoicesByClient.set(inv.clientCompanyId, arr);
+  }
+  const forecast30ByClient = new Map<string, number>();
+  for (const [cid, invs] of invoicesByClient.entries()) {
+    const fc = computeForecast({
+      invoices: invs.map((i) => ({
+        id: i.id,
+        partyId: i.partyId,
+        outstandingAmount: Number(i.outstandingAmount),
+        ageBucket: i.ageBucket,
+      })),
+      promisesByParty: fcPromisesByParty,
+      baseRates: fcBaseRates,
+      velocityMultipliers: fcVelocity,
+    });
+    forecast30ByClient.set(cid, fc.horizons[30]);
+  }
+
   const totalById = new Map(
     totals.map((t) => [t.clientCompanyId, Number(t._sum.closingBalance ?? 0)]),
   );
@@ -196,6 +279,8 @@ export default async function ClientsPage({
       sparkline: sparkByClient.get(c.id) ?? [],
       grade: client.grade as Grade | null,
       gradeTooltip,
+      forecast30: forecast30ByClient.get(c.id) ?? 0,
+      forecast30Formatted: formatINR(forecast30ByClient.get(c.id) ?? 0),
     };
   });
 

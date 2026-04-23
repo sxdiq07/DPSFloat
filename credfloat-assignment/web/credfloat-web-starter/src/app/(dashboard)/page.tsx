@@ -12,6 +12,11 @@ import { PipelineStory } from "./_components/pipeline-story";
 import { DuplicateExposure } from "./_components/duplicate-exposure";
 import { groupDuplicates, type DupCandidate } from "@/lib/duplicates";
 import { formatDistanceToNow } from "date-fns";
+import {
+  calibrateBaseRates,
+  computeForecast,
+  debtorVelocityMultipliers,
+} from "@/lib/forecast";
 
 export const dynamic = "force-dynamic";
 
@@ -250,6 +255,79 @@ export default async function OverviewPage() {
   const overdue90 = Number(overdue90Agg._sum.outstandingAmount ?? 0);
   const collectionsThisMonth = Number(collectionsAgg._sum.amount ?? 0);
 
+  // Cash-inflow forecast. Calibrates base rates from the firm's own
+  // receipt → bill timing history, then projects 30/60/90 day inflow
+  // across every open bill.
+  const [forecastBaseRates, velocity, openInvoicesForForecast, openPromises] =
+    await Promise.all([
+      calibrateBaseRates(firmId),
+      debtorVelocityMultipliers(firmId),
+      prisma.invoice.findMany({
+        where: {
+          clientCompany: { firmId },
+          status: "OPEN",
+          outstandingAmount: { gt: 0 },
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          partyId: true,
+          outstandingAmount: true,
+          ageBucket: true,
+        },
+      }),
+      prisma.promiseToPay.findMany({
+        where: {
+          status: "OPEN",
+          party: { clientCompany: { firmId } },
+          promisedBy: {
+            gte: new Date(),
+            lt: new Date(Date.now() + 90 * 86400_000),
+          },
+        },
+        include: {
+          party: {
+            select: {
+              id: true,
+              promises: { where: { status: { in: ["KEPT", "BROKEN"] } }, select: { status: true } },
+            },
+          },
+        },
+        orderBy: { promisedBy: "asc" },
+      }),
+    ]);
+
+  const promisesByParty = new Map<
+    string,
+    { amount: number; promisedBy: Date; keepRate: number }
+  >();
+  for (const p of openPromises) {
+    const concluded = p.party.promises;
+    const kept = concluded.filter((x) => x.status === "KEPT").length;
+    const total = concluded.length;
+    const keepRate = total === 0 ? 0.6 : kept / total;
+    const existing = promisesByParty.get(p.partyId);
+    if (!existing || p.promisedBy < existing.promisedBy) {
+      promisesByParty.set(p.partyId, {
+        amount: Number(p.amount),
+        promisedBy: p.promisedBy,
+        keepRate,
+      });
+    }
+  }
+
+  const forecast = computeForecast({
+    invoices: openInvoicesForForecast.map((i) => ({
+      id: i.id,
+      partyId: i.partyId,
+      outstandingAmount: Number(i.outstandingAmount),
+      ageBucket: i.ageBucket,
+    })),
+    promisesByParty,
+    baseRates: forecastBaseRates,
+    velocityMultipliers: velocity,
+  });
+
   // Latest run per job — cronRuns is pre-sorted desc by startedAt so
   // first occurrence of each job name wins.
   const jobOrder: Array<{ id: string; label: string }> = [
@@ -388,6 +466,47 @@ export default async function OverviewPage() {
           animate={false}
           sub="Email, SMS and WhatsApp combined"
         />
+      </section>
+
+      {/* Cash inflow forecast */}
+      <section className="card-apple overflow-hidden">
+        <div className="flex items-end justify-between gap-6 px-10 pt-9 pb-6">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3">
+              Cash inflow forecast
+            </p>
+            <h2 className="mt-2 text-[26px] font-semibold tracking-tight text-ink">
+              Expected receipts over the next 30, 60, and 90 days
+            </h2>
+            <p className="mt-1.5 max-w-2xl text-[15px] leading-relaxed text-ink-3">
+              ML-calibrated from the firm&apos;s own receipt-vs-bill timing
+              history. Each open bill&apos;s expected payment probability is
+              weighted by the debtor&apos;s historical velocity and any
+              open promise-to-pay.
+            </p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-0 border-t border-subtle sm:grid-cols-3">
+          {([30, 60, 90] as const).map((h, i) => (
+            <div
+              key={h}
+              className={`px-10 py-8 ${i > 0 ? "border-t sm:border-l sm:border-t-0 border-subtle" : ""}`}
+            >
+              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3">
+                Next {h} days
+              </div>
+              <div className="tabular mt-3 text-[34px] font-semibold leading-none tracking-tight text-ink">
+                <span className="mr-1 text-[22px] font-light text-ink-3">₹</span>
+                {formatINRCompact(forecast.horizons[h]).replace("₹", "")}
+              </div>
+              <div className="mt-2 text-[12.5px] text-ink-3">
+                {totalOutstanding > 0
+                  ? `${((forecast.horizons[h] / totalOutstanding) * 100).toFixed(0)}% of book expected to land`
+                  : "No open book"}
+              </div>
+            </div>
+          ))}
+        </div>
       </section>
 
       {/* Ageing distribution */}

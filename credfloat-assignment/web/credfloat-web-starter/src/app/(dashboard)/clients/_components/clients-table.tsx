@@ -45,6 +45,8 @@ type Row = {
   sparkline: number[];
   grade: Grade | null;
   gradeTooltip: string;
+  forecast30: number;
+  forecast30Formatted: string;
 };
 
 type SavedView = { id: string; name: string; params: string };
@@ -374,6 +376,7 @@ export function ClientsTable({
                 <th className="px-4 py-4 text-left font-medium">Client</th>
                 <th className="px-8 py-4 text-right font-medium">Outstanding</th>
                 <th className="px-8 py-4 text-right font-medium">Overdue 60+</th>
+                <th className="px-8 py-4 text-right font-medium">Expected 30d</th>
                 <th className="px-8 py-4 text-right font-medium">Debtors</th>
                 <th className="px-4 py-4 text-center font-medium">Grade</th>
                 <th className="px-6 py-4 text-left font-medium">6-mo collections</th>
@@ -428,6 +431,18 @@ export function ClientsTable({
                           style={{ color: "#c6373a" }}
                         >
                           {c.overdueFormatted}
+                        </span>
+                      ) : (
+                        <span className="text-ink-3">—</span>
+                      )}
+                    </td>
+                    <td
+                      className="tabular px-8 py-5 text-right"
+                      title="Predicted receipts in the next 30 days — calibrated from this firm's historical payment velocity."
+                    >
+                      {c.forecast30 > 0 ? (
+                        <span className="font-medium text-ink">
+                          {c.forecast30Formatted}
                         </span>
                       ) : (
                         <span className="text-ink-3">—</span>
