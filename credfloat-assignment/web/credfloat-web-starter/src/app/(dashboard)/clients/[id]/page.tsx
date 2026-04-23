@@ -12,6 +12,7 @@ import { StatCard } from "@/components/ui/stat-card";
 import { ExportDebtorsButton } from "./_components/export-debtors-button";
 import { ArchiveDebtorButton } from "./_components/archive-debtor-button";
 import { IvrCallButton } from "./_components/ivr-call-button";
+import { ContactsImportButton } from "./_components/contacts-import-button";
 import { NotesTimeline, type TimelineEvent } from "./_components/notes-timeline";
 import { PromisesPanel, type PromiseRow } from "./_components/promises-panel";
 import { scoreDebtor } from "@/lib/scoring";
@@ -388,17 +389,20 @@ export default async function ClientDetailPage({
                   {partiesWithBalance.length === 1 ? "" : "s"} with outstanding
                   balance, sorted by amount.
                 </div>
-                <ExportDebtorsButton
-                  clientName={client.displayName}
-                  rows={partiesWithBalance.map((p) => ({
-                    name: p.mailingName || p.tallyLedgerName,
-                    email: p.email,
-                    phone: p.phone,
-                    whatsapp: p.whatsappNumber,
-                    address: p.address,
-                    outstanding: partyLedgerDue(p.closingBalance),
-                  }))}
-                />
+                <div className="flex items-center gap-2">
+                  <ContactsImportButton clientCompanyId={client.id} />
+                  <ExportDebtorsButton
+                    clientName={client.displayName}
+                    rows={partiesWithBalance.map((p) => ({
+                      name: p.mailingName || p.tallyLedgerName,
+                      email: p.email,
+                      phone: p.phone,
+                      whatsapp: p.whatsappNumber,
+                      address: p.address,
+                      outstanding: partyLedgerDue(p.closingBalance),
+                    }))}
+                  />
+                </div>
               </div>
             )}
             {partiesWithBalance.length === 0 ? (
