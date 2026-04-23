@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatCard } from "@/components/ui/stat-card";
 import { ExportDebtorsButton } from "./_components/export-debtors-button";
 import { ArchiveDebtorButton } from "./_components/archive-debtor-button";
+import { IvrCallButton } from "./_components/ivr-call-button";
 import { NotesTimeline, type TimelineEvent } from "./_components/notes-timeline";
 import { PromisesPanel, type PromiseRow } from "./_components/promises-panel";
 import { computeReliability, reliabilityTone } from "@/lib/reliability";
@@ -496,6 +497,10 @@ export default async function ClientDetailPage({
                               <BookOpen className="h-3 w-3" />
                             </Link>
                             <DownloadLedgerButton partyId={p.id} />
+                            <IvrCallButton
+                              partyId={p.id}
+                              partyName={p.mailingName || p.tallyLedgerName}
+                            />
                             <ArchiveDebtorButton
                               partyId={p.id}
                               partyName={p.mailingName || p.tallyLedgerName}

@@ -69,6 +69,7 @@ model FirmStaff {
   promisesLogged PromiseToPay[]
   savedViews     SavedView[]
   portalTokens   PortalToken[]
+  callLogs       CallLog[]
 
   @@index([firmId])
 }
@@ -155,6 +156,7 @@ model Party {
   remindersSent   ReminderSent[]
   notes           Note[]
   promises        PromiseToPay[]
+  callLogs        CallLog[]
 
   lastSyncedAt    DateTime
   createdAt       DateTime       @default(now())
@@ -191,6 +193,7 @@ model Invoice {
 
   remindersSent     ReminderSent[]
   allocations       ReceiptAllocation[]
+  callLogs          CallLog[]
 
   lastSyncedAt      DateTime
   createdAt         DateTime       @default(now())
@@ -525,4 +528,48 @@ enum CronStatus {
   RUNNING
   OK
   FAILED
+}
+
+// -------------------------------------------------------------------
+// CallLog — one row per IVR voice call triggered via Twilio Studio.
+// Populated by /api/twilio/studio/webhook as the Studio Flow fires
+// step events. Surfaces in the Reminder log tab and in the audit log.
+// -------------------------------------------------------------------
+model CallLog {
+  id              String     @id @default(cuid())
+  party           Party      @relation(fields: [partyId], references: [id], onDelete: Cascade)
+  partyId         String
+  invoice         Invoice?   @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  invoiceId       String?
+  initiator       FirmStaff  @relation(fields: [initiatedBy], references: [id], onDelete: Cascade)
+  initiatedBy     String
+
+  toNumber        String     // the +91… number we dialed
+  executionSid    String?    @unique // Twilio Studio Execution SID
+  callSid         String?    // Twilio voice Call SID (once placed)
+  status          CallStatus @default(QUEUED)
+  dtmfResponse    String?    // the key the debtor pressed (1/2/3/9)
+  durationSec     Int?
+  error           String?
+
+  startedAt       DateTime   @default(now())
+  answeredAt      DateTime?
+  endedAt         DateTime?
+
+  @@index([partyId])
+  @@index([invoiceId])
+  @@index([startedAt])
+  @@index([status])
+}
+
+enum CallStatus {
+  QUEUED       // row created, execution request not yet accepted by Twilio
+  INITIATED    // Twilio accepted the execution
+  RINGING
+  IN_PROGRESS  // debtor picked up, IVR is playing
+  COMPLETED    // call ended normally
+  BUSY
+  NO_ANSWER
+  FAILED
+  CANCELLED
 }
