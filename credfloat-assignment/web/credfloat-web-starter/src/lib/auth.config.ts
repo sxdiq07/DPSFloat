@@ -35,7 +35,10 @@ export const authConfig = {
         pathname.startsWith("/api/cron") ||
         pathname.startsWith("/api/auth") ||
         pathname.startsWith("/api/webhooks/") ||
-        pathname.startsWith("/portal/")
+        pathname.startsWith("/api/ledger/") ||
+        pathname.startsWith("/api/invoice/") ||
+        pathname.startsWith("/portal/") ||
+        pathname.startsWith("/invoice/")
       ) {
         return true;
       }

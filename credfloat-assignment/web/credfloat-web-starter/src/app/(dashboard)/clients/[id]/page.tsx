@@ -22,6 +22,7 @@ import {
   type PortalTokenRow,
 } from "./_components/portal-link-panel";
 import { SendReminderButton } from "./_components/send-reminder-button";
+import { InvoiceShareButton } from "./_components/invoice-share-button";
 import { DownloadLedgerButton } from "./_components/download-ledger-button";
 import { InvoiceActions } from "./_components/invoice-actions";
 import { ExportRemindersButton } from "./_components/export-reminders-button";
@@ -680,6 +681,7 @@ export default async function ClientDetailPage({
                             invoiceId={inv.id}
                             currentStatus={inv.status}
                           />
+                          <InvoiceShareButton invoiceId={inv.id} />
                           <SendReminderButton
                             invoiceId={inv.id}
                             hasEmail={Boolean(inv.party.email)}
