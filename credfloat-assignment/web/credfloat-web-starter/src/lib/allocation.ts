@@ -1,23 +1,29 @@
 /**
  * Receipt allocation engine.
  *
- * For each party, reconciles Invoice.outstandingAmount and Party.advanceAmount
- * by applying receipts against open invoices. Two passes:
+ * Invoice.outstandingAmount is sourced from Tally's per-bill ClosingBalance —
+ * that is, what Tally says is still due on each bill AFTER Tally's own
+ * internal allocations. We do NOT re-derive it from originalAmount minus our
+ * receipt sums; that would double-count every receipt Tally has already
+ * allocated against a specific bill.
  *
- *   1. TALLY_BILLWISE — use explicit receipt → bill references that the
- *      Tally sync provided (via BILLALLOCATIONS on the receipt voucher).
- *      These rows encode what Tally itself has already done on its side.
+ * Two passes:
  *
- *   2. FIFO_DERIVED — for whatever remains of each receipt (either unmarked
- *      in Tally, or partially unallocated), apply it against still-open
- *      invoices oldest-first (by billDate ASC). This is how on-account
- *      payments get chased to the right bills without human input.
+ *   1. TALLY_BILLWISE — for receipts that arrived with BILLALLOCATIONS,
+ *      create audit rows tying the receipt to the bill. The rows are
+ *      display-only (drill-down, audit trail); they do NOT reduce
+ *      outstandingAmount, because Tally already reduced it when it
+ *      produced the ClosingBalance we synced.
  *
- * MANUAL rows are preserved untouched — staff overrides win over the engine.
+ *   2. FIFO_DERIVED — only runs for receipts with NO bill-refs (truly
+ *      on-account). Applied against still-open invoices oldest-first, up
+ *      to each invoice's Tally outstanding. DOES reduce outstandingAmount
+ *      so the bill-level view tracks the ledger.
  *
- * The engine is idempotent: every sync wipes non-MANUAL allocations for
- * the party and re-derives from scratch. Reliable as long as the input
- * invoices + receipts are consistent with Tally.
+ * MANUAL rows survive and reduce outstandingAmount — staff overrides win.
+ *
+ * The engine is idempotent: every sync wipes non-MANUAL allocations for the
+ * party and re-derives from scratch.
  */
 
 import { Prisma } from "@prisma/client";
@@ -70,6 +76,7 @@ export async function allocateForParty(
     billRef: string;
     billDate: Date;
     originalAmount: Prisma.Decimal;
+    outstandingAmount: Prisma.Decimal;
   }>,
   receipts: ReceiptInput[],
   /**
@@ -111,16 +118,22 @@ export async function allocateForParty(
     manualByReceipt.set(m.receiptId, (manualByReceipt.get(m.receiptId) ?? 0) + a);
   }
 
-  // Remaining capacity per invoice = originalAmount − MANUAL already applied.
+  // Remaining capacity per invoice = Tally's current outstandingAmount
+  // minus MANUAL already applied. outstandingAmount is Tally's net-of-its-
+  // own-allocations view, so TALLY_BILLWISE receipts must not further
+  // reduce this — they'd double-count against what Tally already resolved.
   const invoiceRemaining = new Map<string, number>();
   const invoiceByRef = new Map<string, string>();
   const invoicesSortedByDate = [...invoices].sort(
     (a, b) => a.billDate.getTime() - b.billDate.getTime(),
   );
   for (const inv of invoicesSortedByDate) {
-    const original = Number(inv.originalAmount);
+    const tallyOutstanding = Number(inv.outstandingAmount);
     const manual = manualByInvoice.get(inv.id) ?? 0;
-    invoiceRemaining.set(inv.id, round2(original - manual));
+    invoiceRemaining.set(
+      inv.id,
+      round2(Math.max(0, tallyOutstanding - manual)),
+    );
     invoiceByRef.set(inv.billRef, inv.id);
   }
 
@@ -139,26 +152,35 @@ export async function allocateForParty(
   };
   const newRows: NewRow[] = [];
 
-  // Pass 1 — Tally-provided bill-wise allocations.
+  // Pass 1 — Tally bill-wise audit rows.
+  //
+  // These exist for drill-down display only. Tally already applied these
+  // receipts when producing the per-bill ClosingBalance we synced into
+  // outstandingAmount. Do NOT deduct from invoiceRemaining or
+  // receiptRemaining: that would double-count.
+  //
+  // Audit rows are capped at the bill's originalAmount so a malformed
+  // over-cap billRef doesn't produce an allocation larger than the bill
+  // itself.
+  const invById = new Map(invoices.map((i) => [i.id, i]));
   let billwiseApplied = 0;
   for (const r of receipts) {
     if (!r.billRefs || r.billRefs.length === 0) continue;
     for (const alloc of r.billRefs) {
       const invId = invoiceByRef.get(alloc.billRef);
       if (!invId) continue; // bill ref not among this party's open invoices
-      const invCap = invoiceRemaining.get(invId) ?? 0;
-      const recLeft = receiptRemaining.get(r.id) ?? 0;
-      const applied = round2(Math.min(alloc.amount, invCap, recLeft));
-      if (applied <= 0) continue;
+      const inv = invById.get(invId);
+      if (!inv) continue;
+      const cap = Number(inv.originalAmount);
+      const amount = round2(Math.min(alloc.amount, cap));
+      if (amount <= 0) continue;
       newRows.push({
         receiptId: r.id,
         invoiceId: invId,
-        amount: applied,
+        amount,
         source: "TALLY_BILLWISE",
       });
-      invoiceRemaining.set(invId, round2(invCap - applied));
-      receiptRemaining.set(r.id, round2(recLeft - applied));
-      billwiseApplied += applied;
+      billwiseApplied += amount;
     }
   }
 
@@ -222,29 +244,34 @@ export async function allocateForParty(
     });
   }
 
-  // Update invoice.outstandingAmount = originalAmount − sum(allocations).
-  // Iterate: sum up all allocations (MANUAL + newly derived) per invoice.
-  const totalByInvoice = new Map<string, number>();
+  // Sum only allocations that genuinely reduce outstanding — MANUAL and
+  // FIFO_DERIVED. TALLY_BILLWISE is display-only (audit rows), already
+  // reflected in Tally's outstandingAmount.
+  const reducingByInvoice = new Map<string, number>();
   for (const m of manualRows) {
-    totalByInvoice.set(
+    reducingByInvoice.set(
       m.invoiceId,
-      (totalByInvoice.get(m.invoiceId) ?? 0) + Number(m.amount),
+      (reducingByInvoice.get(m.invoiceId) ?? 0) + Number(m.amount),
     );
   }
   for (const row of newRows) {
-    totalByInvoice.set(
+    if (row.source !== "FIFO_DERIVED") continue;
+    reducingByInvoice.set(
       row.invoiceId,
-      (totalByInvoice.get(row.invoiceId) ?? 0) + row.amount,
+      (reducingByInvoice.get(row.invoiceId) ?? 0) + row.amount,
     );
   }
 
   // Per-invoice outstanding after the allocation passes.
+  // Baseline = Tally's outstandingAmount (already net of Tally's own
+  // allocations). Subtract our MANUAL + FIFO_DERIVED to land at the true
+  // current outstanding.
   const invoiceOutstanding = new Map<string, number>();
   for (const inv of invoices) {
-    const allocated = totalByInvoice.get(inv.id) ?? 0;
+    const reducing = reducingByInvoice.get(inv.id) ?? 0;
     invoiceOutstanding.set(
       inv.id,
-      round2(Math.max(0, Number(inv.originalAmount) - allocated)),
+      round2(Math.max(0, Number(inv.outstandingAmount) - reducing)),
     );
   }
 
@@ -343,7 +370,13 @@ export async function allocateAllDirty(
     const [invoices, receipts] = await Promise.all([
       prisma.invoice.findMany({
         where: { partyId, status: { in: ["OPEN", "PAID"] } },
-        select: { id: true, billRef: true, billDate: true, originalAmount: true },
+        select: {
+          id: true,
+          billRef: true,
+          billDate: true,
+          originalAmount: true,
+          outstandingAmount: true,
+        },
         orderBy: { billDate: "asc" },
       }),
       prisma.receipt.findMany({

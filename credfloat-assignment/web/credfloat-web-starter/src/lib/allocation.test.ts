@@ -73,20 +73,33 @@ function makeTx() {
   return { tx, createdRows, invoiceUpdates, partyUpdates };
 }
 
-const inv = (id: string, billRef: string, daysOld: number, orig: number) => ({
+const inv = (
+  id: string,
+  billRef: string,
+  daysOld: number,
+  orig: number,
+  outstanding: number = orig,
+) => ({
   id,
   billRef,
   billDate: new Date(Date.now() - daysOld * 86400_000),
   originalAmount: new Prisma.Decimal(orig),
+  outstandingAmount: new Prisma.Decimal(outstanding),
 });
 
 describe("allocateForParty", () => {
-  it("applies a Tally bill-wise allocation when billRef matches", async () => {
+  it("records a TALLY_BILLWISE audit row without touching outstanding", async () => {
+    // Tally has already applied R1 to B001 — reports I1 outstanding as 0.
+    // Our engine records the audit row (for drill-down) but must not
+    // deduct from outstandingAmount, otherwise we double-count.
     const { tx, createdRows, invoiceUpdates, partyUpdates } = makeTx();
     await allocateForParty(
       tx as unknown as Prisma.TransactionClient,
       "P1",
-      [inv("I1", "B001", 60, 10000), inv("I2", "B002", 30, 5000)],
+      [
+        inv("I1", "B001", 60, 10000, /*outstanding*/ 0),
+        inv("I2", "B002", 30, 5000),
+      ],
       [{ id: "R1", amount: 10000, billRefs: [{ billRef: "B001", amount: 10000 }] }],
     );
     expect(createdRows).toHaveLength(1);
@@ -95,7 +108,7 @@ describe("allocateForParty", () => {
       invoiceId: "I1",
       source: "TALLY_BILLWISE",
     });
-    // I1 fully paid, I2 untouched
+    // I1 stays at Tally's 0, I2 stays at Tally's 5000
     expect(invoiceUpdates.find((u) => u.id === "I1")).toMatchObject({
       outstandingAmount: 0,
       status: "PAID",
@@ -151,7 +164,10 @@ describe("allocateForParty", () => {
     await allocateForParty(
       tx as unknown as Prisma.TransactionClient,
       "P1",
-      [inv("I1", "B001", 60, 4000), inv("I2", "B002", 30, 6000)],
+      [
+        inv("I1", "B001", 60, 4000, /*outstanding*/ 0), // Tally: paid
+        inv("I2", "B002", 30, 6000),                     // still open
+      ],
       [
         {
           id: "R1",
@@ -220,12 +236,19 @@ describe("allocateForParty", () => {
     expect(i2.status).toBe("OPEN");
   });
 
-  it("caps a bill-wise allocation at the invoice's remaining capacity", async () => {
+  it("caps a TALLY_BILLWISE audit row at the invoice's originalAmount", async () => {
+    // Tally emitted an over-cap bill-ref (5k against a 3k bill). The
+    // audit row must be capped so we don't claim a bill was paid more
+    // than its face value. I2 is untouched — bill-wise receipts don't
+    // fall through to FIFO.
     const { tx, createdRows, invoiceUpdates } = makeTx();
     await allocateForParty(
       tx as unknown as Prisma.TransactionClient,
       "P1",
-      [inv("I1", "B001", 60, 3000), inv("I2", "B002", 30, 2000)],
+      [
+        inv("I1", "B001", 60, 3000, /*outstanding*/ 0),
+        inv("I2", "B002", 30, 2000),
+      ],
       [
         {
           id: "R1",
@@ -234,9 +257,6 @@ describe("allocateForParty", () => {
         },
       ],
     );
-    // 3k capped onto I1 bill-wise. The remaining 2k is NOT pushed onto
-    // I2 — bill-wise receipts do not fall through to FIFO. Tally meant
-    // that 2k for something we don't see (likely a closed bill).
     expect(createdRows).toHaveLength(1);
     expect(createdRows[0].invoiceId).toBe("I1");
     expect(Number(createdRows[0].amount)).toBe(3000);

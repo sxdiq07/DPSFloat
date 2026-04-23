@@ -588,7 +588,13 @@ export async function POST(req: NextRequest) {
     const [partyInvoices, partyReceipts, party] = await Promise.all([
       prisma.invoice.findMany({
         where: { partyId },
-        select: { id: true, billRef: true, billDate: true, originalAmount: true },
+        select: {
+          id: true,
+          billRef: true,
+          billDate: true,
+          originalAmount: true,
+          outstandingAmount: true,
+        },
         orderBy: { billDate: "asc" },
       }),
       prisma.receipt.findMany({
