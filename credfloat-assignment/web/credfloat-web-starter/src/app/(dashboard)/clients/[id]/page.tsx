@@ -455,17 +455,35 @@ export default async function ClientDetailPage({
                                 advance {formatINR(Number(p.advanceAmount))}
                               </span>
                             )}
-                            {Math.abs(
-                              partyInvoiceDue(p.id) -
-                                partyLedgerDue(p.closingBalance),
-                            ) > 1 && (
-                              <span
-                                className="mt-0.5 text-[10.5px] text-ink-3"
-                                title="Sum of open bill residuals post-FIFO — differs from ledger when Tally has adjustments we didn't sync."
-                              >
-                                bills {formatINR(partyInvoiceDue(p.id))}
-                              </span>
-                            )}
+                            {(() => {
+                              const billsDue = partyInvoiceDue(p.id);
+                              const ledgerDue = partyLedgerDue(p.closingBalance);
+                              const gap = Math.abs(billsDue - ledgerDue);
+                              // Exact match → show nothing extra; ledger is truth.
+                              if (gap <= 1) return null;
+                              // Ledger owes money but no bill-wise data synced
+                              // for this debtor (Tally ledger likely doesn't have
+                              // "Maintain balances bill-by-bill" enabled). Say so
+                              // explicitly instead of showing a misleading ₹0.
+                              if (billsDue <= 1 && ledgerDue > 1) {
+                                return (
+                                  <span
+                                    className="mt-0.5 text-[10.5px] text-ink-3"
+                                    title="Tally's bill-wise tracking isn't enabled for this debtor. Enable 'Maintain balances bill-by-bill' on their ledger to chase specific bills."
+                                  >
+                                    No bill-wise data
+                                  </span>
+                                );
+                              }
+                              return (
+                                <span
+                                  className="mt-0.5 text-[10.5px] text-ink-3"
+                                  title="Sum of open bill residuals post-FIFO — differs from ledger when Tally has adjustments we didn't sync."
+                                >
+                                  bills {formatINR(billsDue)}
+                                </span>
+                              );
+                            })()}
                           </div>
                         </td>
                         <td className="px-8 py-4 text-right">
