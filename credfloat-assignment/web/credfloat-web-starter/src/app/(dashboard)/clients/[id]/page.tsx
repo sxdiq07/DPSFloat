@@ -17,6 +17,7 @@ import { NotesTimeline, type TimelineEvent } from "./_components/notes-timeline"
 import { PromisesPanel, type PromiseRow } from "./_components/promises-panel";
 import { scoreDebtor } from "@/lib/scoring";
 import { GradePill } from "@/components/ui/grade-pill";
+import { computeCadenceHints, formatCadenceHint } from "@/lib/cadence";
 import { computeAgeBucket, daysOverdue } from "@/lib/ageing";
 import {
   PortalLinkPanel,
@@ -94,6 +95,10 @@ export default async function ClientDetailPage({
       })
     ).map((r) => r.partyId),
   );
+
+  // Cadence hints — ML-calibrated best-time-to-reach per debtor,
+  // learned from their reminder open/read history.
+  const cadenceHints = await computeCadenceHints(firmId);
 
   const session = await (await import("@/lib/auth")).auth();
   const currentUserId = session?.user?.id ?? null;
@@ -537,10 +542,20 @@ export default async function ClientDetailPage({
                           />
                         </td>
                         <td className="px-8 py-4">
-                          <GradePill
-                            grade={debtorScore.grade}
-                            tooltip={scoreTooltip}
-                          />
+                          <div className="flex flex-col items-start gap-1">
+                            <GradePill
+                              grade={debtorScore.grade}
+                              tooltip={scoreTooltip}
+                            />
+                            {cadenceHints.get(p.id) && (
+                              <span
+                                className="text-[10.5px] text-ink-3"
+                                title={`ML-learned best time to reach this debtor. Sample: ${cadenceHints.get(p.id)!.sampleSize} past sends. Confidence: ${cadenceHints.get(p.id)!.confidence}.`}
+                              >
+                                best {formatCadenceHint(cadenceHints.get(p.id)!)}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="tabular px-8 py-4 text-right font-medium text-ink">
                           <div className="flex flex-col items-end">
