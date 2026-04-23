@@ -29,6 +29,8 @@ import { setClientStatus } from "../_actions/set-status";
 import { bulkSetClientStatus } from "../_actions/bulk";
 import { saveView, deleteView } from "../_actions/saved-views";
 import { Sparkline } from "./sparkline";
+import { GradePill } from "@/components/ui/grade-pill";
+import type { Grade } from "@/lib/scoring";
 
 type Row = {
   id: string;
@@ -41,6 +43,8 @@ type Row = {
   outstandingFormatted: string;
   overdueFormatted: string | null;
   sparkline: number[];
+  grade: Grade | null;
+  gradeTooltip: string;
 };
 
 type SavedView = { id: string; name: string; params: string };
@@ -371,6 +375,7 @@ export function ClientsTable({
                 <th className="px-8 py-4 text-right font-medium">Outstanding</th>
                 <th className="px-8 py-4 text-right font-medium">Overdue 60+</th>
                 <th className="px-8 py-4 text-right font-medium">Debtors</th>
+                <th className="px-4 py-4 text-center font-medium">Grade</th>
                 <th className="px-6 py-4 text-left font-medium">6-mo collections</th>
                 <th className="px-8 py-4 text-left font-medium">Status</th>
                 <th className="px-8 py-4 text-left font-medium">Last synced</th>
@@ -430,6 +435,9 @@ export function ClientsTable({
                     </td>
                     <td className="tabular px-8 py-5 text-right text-ink-2">
                       {c.debtorCount}
+                    </td>
+                    <td className="px-4 py-5 text-center">
+                      <GradePill grade={c.grade} tooltip={c.gradeTooltip} />
                     </td>
                     <td className="px-6 py-5">
                       <Sparkline data={c.sparkline} />

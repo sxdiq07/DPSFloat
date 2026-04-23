@@ -14,7 +14,8 @@ import { ArchiveDebtorButton } from "./_components/archive-debtor-button";
 import { IvrCallButton } from "./_components/ivr-call-button";
 import { NotesTimeline, type TimelineEvent } from "./_components/notes-timeline";
 import { PromisesPanel, type PromiseRow } from "./_components/promises-panel";
-import { computeReliability, reliabilityTone } from "@/lib/reliability";
+import { scoreDebtor } from "@/lib/scoring";
+import { GradePill } from "@/components/ui/grade-pill";
 import { computeAgeBucket, daysOverdue } from "@/lib/ageing";
 import {
   PortalLinkPanel,
@@ -75,6 +76,22 @@ export default async function ClientDetailPage({
     orderBy: { sentAt: "desc" },
     take: 100,
   });
+
+  // Disputed invoice party-ids — used by the debtor-grade calculator
+  // to knock a grade on parties with any active dispute. Fetched as a
+  // tiny distinct-party list so we don't widen the main invoices pull.
+  const disputedParties = new Set<string>(
+    (
+      await prisma.invoice.findMany({
+        where: {
+          clientCompanyId: client.id,
+          status: "DISPUTED",
+          deletedAt: null,
+        },
+        select: { partyId: true },
+      })
+    ).map((r) => r.partyId),
+  );
 
   const session = await (await import("@/lib/auth")).auth();
   const currentUserId = session?.user?.id ?? null;
@@ -415,18 +432,89 @@ export default async function ClientDetailPage({
                     ).length;
                     const openPastDue = 0;
                     const partyInvoices = client.invoices.filter(
-                      (inv) => inv.partyId === p.id && inv.dueDate,
+                      (inv) => inv.partyId === p.id,
                     );
                     const maxOverdue = partyInvoices.reduce((m, inv) => {
-                      const d = daysOverdue(inv.dueDate!);
+                      if (!inv.dueDate) return m;
+                      const d = daysOverdue(inv.dueDate);
                       return Math.max(m, Math.max(0, d));
                     }, 0);
-                    const score = computeReliability({
+                    // Per-party ageing breakdown for the scorer
+                    const ageing = {
+                      current: 0,
+                      days_0_30: 0,
+                      days_30_60: 0,
+                      days_60_90: 0,
+                      days_90_plus: 0,
+                    };
+                    for (const inv of partyInvoices) {
+                      const amt = Number(inv.outstandingAmount);
+                      switch (inv.ageBucket) {
+                        case "CURRENT":
+                          ageing.current += amt;
+                          break;
+                        case "DAYS_0_30":
+                          ageing.days_0_30 += amt;
+                          break;
+                        case "DAYS_30_60":
+                          ageing.days_30_60 += amt;
+                          break;
+                        case "DAYS_60_90":
+                          ageing.days_60_90 += amt;
+                          break;
+                        case "DAYS_90_PLUS":
+                          ageing.days_90_plus += amt;
+                          break;
+                      }
+                    }
+                    const hasOpenDispute = disputedParties.has(p.id);
+                    // Reminder engagement stats from the 100-row slice
+                    const partyReminders = remindersSent.filter(
+                      (r) => r.partyId === p.id,
+                    );
+                    const reminderStats =
+                      partyReminders.length > 0
+                        ? {
+                            sent: partyReminders.length,
+                            delivered: partyReminders.filter(
+                              (r) =>
+                                r.status === "DELIVERED" ||
+                                r.status === "READ" ||
+                                r.status === "SENT",
+                            ).length,
+                            opened: partyReminders.filter(
+                              (r) => r.status === "READ",
+                            ).length,
+                            bounced: partyReminders.filter(
+                              (r) =>
+                                r.status === "BOUNCED" || r.status === "FAILED",
+                            ).length,
+                          }
+                        : undefined;
+                    const debtorScore = scoreDebtor({
                       kept,
                       broken,
                       openPastDue,
                       daysOverdueMax: maxOverdue,
+                      ageing,
+                      reminderStats,
+                      hasOpenDispute,
+                      optedOut: p.optedOut,
+                      archived: false,
                     });
+                    const scoreTooltip = debtorScore.numeric === null
+                      ? "Not enough data to grade yet"
+                      : [
+                          `Grade: ${debtorScore.grade} (${debtorScore.numeric}/100)`,
+                          `Promise keep-rate: ${(debtorScore.factors.keepRate * 100).toFixed(0)}%`,
+                          `60+ overdue share: ${(debtorScore.factors.agingConcentration * 100).toFixed(0)}%`,
+                          debtorScore.factors.responseRate !== null
+                            ? `Reminder response: ${(debtorScore.factors.responseRate * 100).toFixed(0)}%`
+                            : `Reminder response: insufficient data`,
+                          hasOpenDispute ? `Open dispute: yes (−1 grade)` : null,
+                        ]
+                          .filter(Boolean)
+                          .join("\n");
                     return (
                       <tr
                         key={p.id}
@@ -444,7 +532,10 @@ export default async function ClientDetailPage({
                           />
                         </td>
                         <td className="px-8 py-4">
-                          <ReliabilityPill score={score} />
+                          <GradePill
+                            grade={debtorScore.grade}
+                            tooltip={scoreTooltip}
+                          />
                         </td>
                         <td className="tabular px-8 py-4 text-right font-medium text-ink">
                           <div className="flex flex-col items-end">
@@ -842,26 +933,3 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
-function ReliabilityPill({ score }: { score: number | null }) {
-  if (score === null) {
-    return <span className="text-[12.5px] text-ink-3">—</span>;
-  }
-  const tone = reliabilityTone(score);
-  const styles: Record<string, { bg: string; color: string }> = {
-    success: { bg: "rgba(48,209,88,0.14)", color: "#1f7a4a" },
-    accent:  { bg: "rgba(10,132,255,0.10)", color: "#0057b7" },
-    warning: { bg: "rgba(255,159,10,0.14)", color: "#9c5700" },
-    danger:  { bg: "rgba(255,69,58,0.12)",  color: "#c6373a" },
-    neutral: { bg: "rgba(134,134,139,0.12)", color: "var(--color-ink-2)" },
-  };
-  const s = styles[tone];
-  return (
-    <span
-      className="pill tabular"
-      style={{ background: s.bg, color: s.color }}
-      title={`Reliability score · ${score}/100 (weighted: promise keep-rate, effective rate, days-overdue penalty)`}
-    >
-      {score}/100
-    </span>
-  );
-}
