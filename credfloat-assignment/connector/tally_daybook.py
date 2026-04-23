@@ -31,18 +31,17 @@ Tally XML voucher shape we care about:
     ...
   </VOUCHER>
 
-Sign convention (per Tally): each ledger line carries both a signed
-AMOUNT and an ISDEEMEDPOSITIVE flag. Different Tally builds emit
-these in different combinations for the same semantic entry — e.g. a
-Cr debtor can appear as "AMOUNT=-X, flag=Yes" on one build and
-"AMOUNT=+X, flag=No" on another. The robust rule is:
+Sign convention: Tally's AMOUNT sign and ISDEEMEDPOSITIVE flag are
+both unreliable across builds/versions — the same semantic entry can
+appear with opposite encodings. We resolve debtor-side Dr/Cr from
+the VOUCHER TYPE instead, which is unambiguous:
 
-    effective = -AMOUNT if flag == "No" else AMOUNT
-    effective > 0  →  Dr (debit)
-    effective < 0  →  Cr (credit)
+    Sales, Debit Note, Payment   →  debtor is Dr
+    Receipt, Credit Note, Contra →  debtor is Cr
+    Journal / other              →  fall back to ISDEEMEDPOSITIVE
 
-Both encodings resolve to the same Dr/Cr outcome. For each voucher
-we emit one record per entry whose
+|AMOUNT| gives the magnitude. For each voucher we emit one record
+per entry whose
 LEDGERNAME is among the known debtor ledgers (passed in by the caller).
 Counterparty is inferred as the main "other side" of the voucher —
 typically the biggest non-debtor line, or falls back to PARTYLEDGERNAME.
@@ -283,14 +282,16 @@ def fetch_day_book(
             # Some Tally builds use a different element name.
             entries_list = list(voucher.iter("LEDGERENTRIES.LIST"))
 
-        # Resolve Dr/Cr using BOTH the AMOUNT sign and the
-        # ISDEEMEDPOSITIVE flag. Tally's XML is inconsistent across
-        # versions: some builds emit signed AMOUNTs with the flag always
-        # "Yes", others emit unsigned AMOUNTs with the flag indicating
-        # direction. The robust rule is to treat ISDEEMEDPOSITIVE="No"
-        # as a sign flip, then read Dr/Cr from the effective sign:
-        #   effective = -AMOUNT if flag == "No" else AMOUNT
-        #   effective > 0  → Dr (debit);  effective < 0  → Cr (credit)
+        # Resolve debtor-side Dr/Cr primarily from the voucher TYPE —
+        # accounting rules are unambiguous for the common cases:
+        #   Sales, Debit Note, Payment       →  debtor is Dr
+        #   Receipt, Credit Note, Contra     →  debtor is Cr
+        #   Journal, other                   →  trust ISDEEMEDPOSITIVE
+        # AMOUNT and the flag are notoriously inconsistent across Tally
+        # builds/versions, so we only consult them as a fallback.
+        DEBTOR_DR_TYPES = {"SALES", "DEBIT_NOTE", "PAYMENT"}
+        DEBTOR_CR_TYPES = {"RECEIPT", "CREDIT_NOTE", "CONTRA"}
+
         debtor_lines = []
         non_debtor_lines = []
         for entry in entries_list:
@@ -299,11 +300,18 @@ def fetch_day_book(
                 continue
             amount = _parse_amount(entry.findtext("AMOUNT"))
             flag = (entry.findtext("ISDEEMEDPOSITIVE") or "").strip().lower()
-            effective = -amount if flag == "no" else amount
-            if ledger_name in debtor_ledger_names:
-                debtor_lines.append((ledger_name, effective))
+            magnitude = abs(amount)
+            if vch_type in DEBTOR_DR_TYPES:
+                is_dr = True
+            elif vch_type in DEBTOR_CR_TYPES:
+                is_dr = False
             else:
-                non_debtor_lines.append((ledger_name, effective))
+                # Journal / unknown — fall back to the flag. Yes = Dr.
+                is_dr = flag == "yes"
+            if ledger_name in debtor_ledger_names:
+                debtor_lines.append((ledger_name, magnitude, is_dr))
+            else:
+                non_debtor_lines.append((ledger_name, magnitude))
 
         if not debtor_lines:
             skipped_no_debtor += 1
@@ -312,15 +320,15 @@ def fetch_day_book(
         # Pick counterparty = non-debtor line with the largest |amount|.
         counterparty = ""
         if non_debtor_lines:
-            counterparty = max(non_debtor_lines, key=lambda x: abs(x[1]))[0]
+            counterparty = max(non_debtor_lines, key=lambda x: x[1])[0]
         elif party_ledger and party_ledger not in debtor_ledger_names:
             counterparty = party_ledger
 
-        for ledger_name, eff in debtor_lines:
-            if eff == 0.0:
+        for ledger_name, mag, is_dr in debtor_lines:
+            if mag == 0.0:
                 continue
-            debit = eff if eff > 0 else 0.0
-            credit = -eff if eff < 0 else 0.0
+            debit = mag if is_dr else 0.0
+            credit = mag if not is_dr else 0.0
             entries.append(
                 LedgerEntryRecord(
                     company=company_name,

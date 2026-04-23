@@ -12,16 +12,14 @@ posted via Journal, and year-end reclasses all reduce debtor balance at
 the ledger level. If we only synced Receipt vouchers, our invoice
 residuals would overstate what the debtor actually owes.
 
-We only keep entries whose EFFECTIVE sign is negative — i.e. the
-debtor is being credited (balance reduced). The effective sign is
-computed from AMOUNT and ISDEEMEDPOSITIVE together, because
-different Tally builds represent the same Cr entry in opposite ways:
+We only keep entries whose debtor side is a Cr — i.e. money coming
+in that reduces what the debtor owes. Tally's AMOUNT sign and
+ISDEEMEDPOSITIVE flag are unreliable, so we resolve Dr/Cr from the
+VOUCHER TYPE:
 
-    effective = -AMOUNT if ISDEEMEDPOSITIVE == "No" else AMOUNT
-    effective < 0  →  Cr on debtor (receipt / credit note / bad-debt
-                      write-off); these are what we FIFO against bills.
-    effective > 0  →  Dr on debtor (e.g. interest charged via Journal);
-                      skipped so we don't mis-apply to existing bills.
+    Receipt, Credit Note, Contra →  debtor is Cr (keep for FIFO)
+    Sales, Debit Note, Payment   →  debtor is Dr (skip — not receipt-like)
+    Journal / other              →  fall back to ISDEEMEDPOSITIVE
 
 Observed Tally Prime 7.x schema:
 
@@ -306,19 +304,30 @@ def fetch_receipts(
             skipped_no_party += 1
             continue
 
+        # Voucher-type-first classification. Accounting rules decide
+        # whether a debtor is Dr or Cr for the common cases; the flag
+        # is only consulted for Journal/unknown voucher types.
+        DEBTOR_CR_TYPES = {"Receipt", "Credit Note", "Contra"}
+        DEBTOR_DR_TYPES = {"Sales", "Debit Note", "Payment"}
+
         multi = len(debtor_entries) > 1
         for ledger_name, entry in debtor_entries:
             raw_amount = _parse_amount(entry.findtext("AMOUNT"))
             flag = (entry.findtext("ISDEEMEDPOSITIVE") or "").strip().lower()
-            # Effective sign = AMOUNT with ISDEEMEDPOSITIVE applied as a
-            # sign flip. Only keep entries that REDUCE debtor balance,
-            # i.e. effective < 0 (Cr on the debtor ledger). Positive
-            # effective = Dr (e.g. interest charged via Journal) — those
-            # aren't receipt-like and must not be FIFO'd against bills.
-            effective = -raw_amount if flag == "no" else raw_amount
-            if effective >= 0:
+            # Decide if this debtor-side entry is a Cr (reduces debt).
+            # Only Cr entries belong in this pipeline — Dr entries (e.g.
+            # interest charged via Journal) must not be FIFO'd against
+            # open bills.
+            if vch_type in DEBTOR_CR_TYPES:
+                is_cr = True
+            elif vch_type in DEBTOR_DR_TYPES:
+                is_cr = False
+            else:
+                # Journal / unknown — use the flag. "No" = Cr.
+                is_cr = flag != "yes"
+            if not is_cr:
                 continue
-            total_amount = abs(effective)
+            total_amount = abs(raw_amount)
             if total_amount <= 0:
                 continue
 
