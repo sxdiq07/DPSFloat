@@ -40,6 +40,8 @@ export type ForecastDrillRow = {
     highDays: number;
     sampleSize: number;
     confidence: "high" | "medium" | "low";
+    recommendedTermDays: number;
+    termCaveat: "confident" | "limited_history" | "slow_payer";
   } | null;
   outstandingAmount: number;
 };
@@ -88,9 +90,10 @@ export function ForecastDrillDown({
           <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-ink-3">
             Ranked per debtor contribution to the forecast. The{" "}
             <span className="font-medium text-ink-2">Pays in</span> column
-            is ML-predicted days to first payment with a typical range —
-            use it to decide how much credit time a debtor actually needs
-            vs. what we&apos;re extending.
+            is the ML-predicted days-to-first-payment band;{" "}
+            <span className="font-medium text-ink-2">Safe terms</span>{" "}
+            converts that into a recommended credit period you can put on
+            the next invoice (standard 15/30/45/60/90-day ladder).
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -115,7 +118,7 @@ export function ForecastDrillDown({
       </div>
 
       <div className="mt-4 overflow-hidden rounded-xl border border-subtle">
-        <div className="hidden grid-cols-[minmax(0,2fr)_90px_90px_90px_90px_72px_140px] items-center gap-3 bg-[var(--color-surface-2)] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-ink-3 md:grid">
+        <div className="hidden grid-cols-[minmax(0,2fr)_80px_80px_80px_80px_60px_120px_130px] items-center gap-3 bg-[var(--color-surface-2)] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-ink-3 md:grid">
           <div>Debtor</div>
           <div className="text-right">7d</div>
           <div className="text-right">14d</div>
@@ -123,6 +126,7 @@ export function ForecastDrillDown({
           <div className="text-right">60d</div>
           <div className="text-right">% 30d</div>
           <div className="text-right">Pays in</div>
+          <div className="text-right">Safe terms</div>
         </div>
 
         <div className="max-h-[520px] overflow-y-auto divide-y divide-subtle">
@@ -138,7 +142,7 @@ export function ForecastDrillDown({
                 <Link
                   key={r.partyId}
                   href={`/clients/${r.clientCompanyId}`}
-                  className="grid grid-cols-[minmax(0,2fr)_90px_90px_90px_90px_72px_140px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[var(--color-surface-2)] md:grid"
+                  className="grid grid-cols-[minmax(0,2fr)_80px_80px_80px_80px_60px_120px_130px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[var(--color-surface-2)] md:grid"
                   style={{ display: "grid" }}
                 >
                   <div className="min-w-0">
@@ -168,6 +172,16 @@ export function ForecastDrillDown({
                           <ConfBadge c={r.daysToPay.confidence} />
                         </div>
                       </>
+                    ) : (
+                      <div className="text-[12px] text-ink-3">—</div>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    {r.daysToPay ? (
+                      <SafeTermCell
+                        days={r.daysToPay.recommendedTermDays}
+                        caveat={r.daysToPay.termCaveat}
+                      />
                     ) : (
                       <div className="text-[12px] text-ink-3">—</div>
                     )}
@@ -243,6 +257,67 @@ function AmountCell({
       className={`text-right tabular text-[12.5px] ${emphasize ? "font-semibold text-ink" : "text-ink-2"}`}
     >
       {formatINR(value)}
+    </div>
+  );
+}
+
+/**
+ * "Safe terms" recommendation cell. Renders the standard-ladder
+ * credit term the model recommends, plus a small caveat line
+ * explaining WHY — so a partner reviewing the list knows whether
+ * to trust the number or override it.
+ */
+function SafeTermCell({
+  days,
+  caveat,
+}: {
+  days: number;
+  caveat: "confident" | "limited_history" | "slow_payer";
+}) {
+  const cfg = {
+    confident: {
+      main: `${days} days`,
+      sub: "strong history",
+      subColor: "#1f7a4a",
+      dot: "#1f7a4a",
+    },
+    limited_history: {
+      main: `${days} days`,
+      sub: "new debtor",
+      subColor: "#86868b",
+      dot: "#86868b",
+    },
+    slow_payer: {
+      main: "Advance",
+      sub: "chronic late payer",
+      subColor: "#c6373a",
+      dot: "#c6373a",
+    },
+  }[caveat];
+
+  return (
+    <div
+      title={
+        caveat === "confident"
+          ? `Recommend offering ${days}-day credit terms based on historical payment pattern.`
+          : caveat === "limited_history"
+            ? "Not enough history to personalize — fall back to standard 30-day terms."
+            : "P75 payment window exceeds 75 days — don't extend open credit; ask for advance or milestone payment."
+      }
+    >
+      <div className="tabular text-[13px] font-semibold text-ink">
+        {cfg.main}
+      </div>
+      <div
+        className="tabular text-[10.5px] inline-flex items-center gap-1"
+        style={{ color: cfg.subColor }}
+      >
+        <span
+          className="inline-block h-1.5 w-1.5 rounded-full"
+          style={{ background: cfg.dot }}
+        />
+        {cfg.sub}
+      </div>
     </div>
   );
 }

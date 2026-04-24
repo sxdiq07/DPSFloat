@@ -257,6 +257,13 @@ export type ForecastInput = {
  * label in the UI ("high" when n ≥ 10, "medium" ≥ 3, else "low").
  * `outstandingAmount` is the open balance the debtor has RIGHT NOW,
  * so the UI can show "can wait up to 30 days on ₹2.4L".
+ *
+ * `recommendedTermDays` converts the prediction into policy: the
+ * realistic upper band + a small safety buffer, rounded to a
+ * standard business-terms ladder (15/30/45/60/90). The
+ * `termCaveat` tells the UI whether to show this as a confident
+ * recommendation, a "new debtor — default 30d" hedge, or an
+ * "advance required" warning for chronic slow payers.
  */
 export type DaysToPayRow = {
   days: number;
@@ -265,7 +272,34 @@ export type DaysToPayRow = {
   sampleSize: number;
   confidence: "high" | "medium" | "low";
   outstandingAmount: number;
+  recommendedTermDays: number;
+  termCaveat: "confident" | "limited_history" | "slow_payer";
 };
+
+/**
+ * Convert an ML days-to-pay prediction into a recommended credit
+ * term. The rule set mirrors what a conservative accountant would
+ * do manually: offer the upper realistic payment window, add a
+ * safety buffer, snap to standard terms, and flag edge cases.
+ */
+function recommendCreditTerm(
+  p75Days: number,
+  sampleSize: number,
+): { days: number; caveat: DaysToPayRow["termCaveat"] } {
+  // Chronic slow payer — don't pretend credit terms will help.
+  if (p75Days > 75) return { days: 90, caveat: "slow_payer" };
+  // Not enough history — default to industry-standard 30 days.
+  if (sampleSize < 3) return { days: 30, caveat: "limited_history" };
+  // Add 3-day buffer; snap to the business-terms ladder.
+  const target = p75Days + 3;
+  let days: number;
+  if (target <= 15) days = 15;
+  else if (target <= 30) days = 30;
+  else if (target <= 45) days = 45;
+  else if (target <= 60) days = 60;
+  else days = 90;
+  return { days, caveat: "confident" };
+}
 
 export type Forecast = {
   horizons: Record<Horizon, number>;
@@ -340,13 +374,17 @@ export async function computeForecastML(
     for (const [partyId, outstanding] of outstandingByParty) {
       const mult = velocity.get(partyId) ?? 1;
       const days = Math.max(1, Math.round(firmMedian / Math.max(0.5, mult)));
+      const highDays = days + 14;
+      const rec = recommendCreditTerm(highDays, 0);
       daysToPayByParty.set(partyId, {
         days,
         lowDays: Math.max(1, days - 10),
-        highDays: days + 14,
+        highDays,
         sampleSize: 0,
         confidence: "low",
         outstandingAmount: outstanding,
+        recommendedTermDays: rec.days,
+        termCaveat: rec.caveat,
       });
     }
     heuristic.daysToPayByParty = daysToPayByParty;
@@ -487,6 +525,7 @@ export async function computeForecastML(
     const sampleSize = model.debtorSampleSize.get(partyId) ?? 0;
     const confidence: DaysToPayRow["confidence"] =
       sampleSize >= 10 ? "high" : sampleSize >= 3 ? "medium" : "low";
+    const rec = recommendCreditTerm(highDays, sampleSize);
     daysToPayByParty.set(partyId, {
       days,
       lowDays,
@@ -494,6 +533,8 @@ export async function computeForecastML(
       sampleSize,
       confidence,
       outstandingAmount: Math.round(slot.outstanding),
+      recommendedTermDays: rec.days,
+      termCaveat: rec.caveat,
     });
   }
 

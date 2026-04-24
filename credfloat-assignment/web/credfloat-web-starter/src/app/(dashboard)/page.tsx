@@ -391,6 +391,8 @@ export default async function OverviewPage() {
               highDays: dtp.highDays,
               sampleSize: dtp.sampleSize,
               confidence: dtp.confidence,
+              recommendedTermDays: dtp.recommendedTermDays,
+              termCaveat: dtp.termCaveat,
             }
           : null,
         outstandingAmount: dtp?.outstandingAmount ?? 0,
