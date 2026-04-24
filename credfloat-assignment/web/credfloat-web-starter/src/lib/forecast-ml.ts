@@ -199,24 +199,42 @@ export async function trainFirmModel(
   // Pull all paid-invoice → first-receipt pairs as training data.
   // We use ReceiptAllocation as the link; bills with multiple
   // allocations contribute one row per bill (first payment wins).
-  const allocs = await prisma.receiptAllocation.findMany({
-    where: { invoice: { clientCompany: { firmId } } },
-    select: {
-      amount: true,
-      receipt: { select: { receiptDate: true } },
-      invoice: {
-        select: {
-          id: true,
-          partyId: true,
-          billDate: true,
-          dueDate: true,
-          originalAmount: true,
-          origin: true,
-          status: true,
+  // Retry once on transient pooler disconnects.
+  const runQuery = () =>
+    prisma.receiptAllocation.findMany({
+      where: { invoice: { clientCompany: { firmId } } },
+      select: {
+        amount: true,
+        receipt: { select: { receiptDate: true } },
+        invoice: {
+          select: {
+            id: true,
+            partyId: true,
+            billDate: true,
+            dueDate: true,
+            originalAmount: true,
+            origin: true,
+            status: true,
+          },
         },
       },
-    },
-  });
+    });
+  let allocs: Awaited<ReturnType<typeof runQuery>>;
+  try {
+    allocs = await runQuery();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      msg.includes("Server has closed the connection") ||
+      msg.includes("Connection terminated") ||
+      msg.includes("Can't reach database server")
+    ) {
+      await new Promise((r) => setTimeout(r, 250));
+      allocs = await runQuery();
+    } else {
+      throw err;
+    }
+  }
 
   if (allocs.length < 30) return null;
 

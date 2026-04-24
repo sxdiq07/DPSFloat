@@ -18,6 +18,30 @@
 import { prisma } from "@/lib/prisma";
 import { getFirmModel, FEATURE_NAMES } from "@/lib/forecast-ml";
 
+/**
+ * Retry wrapper for Prisma calls that occasionally hit "Server has
+ * closed the connection" from the Supabase pooler. One retry after
+ * a short delay is almost always enough — it's a transient pooler
+ * hiccup, not a genuine DB outage. We only retry on that specific
+ * symptom to avoid masking real query bugs.
+ */
+async function withPoolerRetry<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      msg.includes("Server has closed the connection") ||
+      msg.includes("Connection terminated") ||
+      msg.includes("Can't reach database server")
+    ) {
+      await new Promise((r) => setTimeout(r, 250));
+      return await fn();
+    }
+    throw err;
+  }
+}
+
 export type Horizon = 7 | 14 | 30 | 60 | 90;
 
 /**
@@ -51,22 +75,24 @@ export async function calibrateBaseRates(
 ): Promise<Record<string, Record<Horizon, number>>> {
   // Pull every ReceiptAllocation linking a receipt to a bill that's
   // owned by one of this firm's clients.
-  const allocs = await prisma.receiptAllocation.findMany({
-    where: {
-      invoice: { clientCompany: { firmId } },
-    },
-    select: {
-      amount: true,
-      receipt: { select: { receiptDate: true } },
-      invoice: {
-        select: {
-          billDate: true,
-          dueDate: true,
-          originalAmount: true,
+  const allocs = await withPoolerRetry(() =>
+    prisma.receiptAllocation.findMany({
+      where: {
+        invoice: { clientCompany: { firmId } },
+      },
+      select: {
+        amount: true,
+        receipt: { select: { receiptDate: true } },
+        invoice: {
+          select: {
+            billDate: true,
+            dueDate: true,
+            originalAmount: true,
+          },
         },
       },
-    },
-  });
+    }),
+  );
 
   if (allocs.length < 50) {
     return DEFAULT_BASE_RATES;
@@ -155,17 +181,19 @@ export async function calibrateBaseRates(
 export async function debtorVelocityMultipliers(
   firmId: string,
 ): Promise<Map<string, number>> {
-  const allocs = await prisma.receiptAllocation.findMany({
-    where: {
-      invoice: { clientCompany: { firmId } },
-    },
-    select: {
-      invoice: {
-        select: { partyId: true, billDate: true, dueDate: true },
+  const allocs = await withPoolerRetry(() =>
+    prisma.receiptAllocation.findMany({
+      where: {
+        invoice: { clientCompany: { firmId } },
       },
-      receipt: { select: { receiptDate: true } },
-    },
-  });
+      select: {
+        invoice: {
+          select: { partyId: true, billDate: true, dueDate: true },
+        },
+        receipt: { select: { receiptDate: true } },
+      },
+    }),
+  );
 
   // Collect days-to-pay per debtor.
   const byDebtor = new Map<string, number[]>();
@@ -515,25 +543,27 @@ export async function backtestForecast(
     const end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
     // Snapshot of open invoices AT start of month (approximated —
     // we use current open invoices billed on or before that date).
-    const snapshot = await prisma.invoice.findMany({
-      where: {
-        clientCompany: { firmId },
-        billDate: { lte: start },
-        OR: [
-          { status: "OPEN" },
-          // also include bills that were paid later than `start` —
-          // they were open at snapshot time
-          { status: "PAID", updatedAt: { gt: start } },
-        ],
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-        partyId: true,
-        originalAmount: true,
-        ageBucket: true,
-      },
-    });
+    const snapshot = await withPoolerRetry(() =>
+      prisma.invoice.findMany({
+        where: {
+          clientCompany: { firmId },
+          billDate: { lte: start },
+          OR: [
+            { status: "OPEN" },
+            // also include bills that were paid later than `start` —
+            // they were open at snapshot time
+            { status: "PAID", updatedAt: { gt: start } },
+          ],
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          partyId: true,
+          originalAmount: true,
+          ageBucket: true,
+        },
+      }),
+    );
 
     const fc = computeForecast({
       invoices: snapshot.map((i) => ({
@@ -548,13 +578,15 @@ export async function backtestForecast(
     });
     const predicted = fc.horizons[30];
 
-    const actualAgg = await prisma.receipt.aggregate({
-      where: {
-        clientCompany: { firmId },
-        receiptDate: { gte: start, lt: end },
-      },
-      _sum: { amount: true },
-    });
+    const actualAgg = await withPoolerRetry(() =>
+      prisma.receipt.aggregate({
+        where: {
+          clientCompany: { firmId },
+          receiptDate: { gte: start, lt: end },
+        },
+        _sum: { amount: true },
+      }),
+    );
     const actual = Number(actualAgg._sum.amount ?? 0);
 
     const month = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}`;

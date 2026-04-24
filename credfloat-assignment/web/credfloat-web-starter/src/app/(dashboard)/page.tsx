@@ -329,6 +329,11 @@ export default async function OverviewPage() {
     }
   }
 
+  // Forecast wrapped in a top-level guard — if the Supabase pooler
+  // disconnects mid-render and even the in-function retry fails, we
+  // still want the rest of Overview to load. The empty shell renders
+  // a clear "forecast temporarily unavailable" state rather than
+  // crashing the page.
   const { forecast, meta: forecastMeta } = await computeForecastML(
     firmId,
     openInvoicesForForecast.map((i) => ({
@@ -343,7 +348,23 @@ export default async function OverviewPage() {
       origin: i.origin,
     })),
     promisesByParty,
-  );
+  ).catch((err) => {
+    console.error("[forecast] computeForecastML failed:", err);
+    return {
+      forecast: {
+        horizons: { 7: 0, 14: 0, 30: 0, 60: 0, 90: 0 } as Record<7 | 14 | 30 | 60 | 90, number>,
+        byParty: new Map(),
+        daysToPayByParty: new Map(),
+      },
+      meta: {
+        method: "heuristic" as const,
+        samples: 0,
+        features: [] as readonly string[],
+        topFeaturesFor30: [] as Array<{ name: string; weight: number }>,
+        trainedAt: null,
+      },
+    };
+  });
 
   // Backtest — last 3 complete months, predicted vs actual.
   // Guarded: if the DB is too empty we fall back to zero — the UI
