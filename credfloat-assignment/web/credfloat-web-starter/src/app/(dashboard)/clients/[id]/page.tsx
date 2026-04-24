@@ -13,6 +13,7 @@ import { ExportDebtorsButton } from "./_components/export-debtors-button";
 import { ArchiveDebtorButton } from "./_components/archive-debtor-button";
 import { IvrCallButton } from "./_components/ivr-call-button";
 import { ContactsImportButton } from "./_components/contacts-import-button";
+import { NewInvoiceButton } from "./_components/new-invoice-button";
 import { NotesTimeline, type TimelineEvent } from "./_components/notes-timeline";
 import { PromisesPanel, type PromiseRow } from "./_components/promises-panel";
 import { scoreDebtor } from "@/lib/scoring";
@@ -52,6 +53,10 @@ export default async function ClientDetailPage({
         include: {
           promises: { select: { status: true } },
         },
+      },
+      invoiceItemTemplates: {
+        orderBy: { updatedAt: "desc" },
+        take: 20,
       },
       invoices: {
         where: {
@@ -395,6 +400,27 @@ export default async function ClientDetailPage({
                   balance, sorted by amount.
                 </div>
                 <div className="flex items-center gap-2">
+                  <NewInvoiceButton
+                    clientCompanyId={client.id}
+                    clientSupplierGstin={client.gstin}
+                    clientPlaceOfSupply={
+                      client.defaultPlaceOfSupply || client.stateName
+                    }
+                    parties={client.parties.map((p) => ({
+                      id: p.id,
+                      tallyLedgerName: p.tallyLedgerName,
+                      mailingName: p.mailingName,
+                      gstin: p.gstin,
+                      stateName: p.stateName,
+                    }))}
+                    templates={client.invoiceItemTemplates.map((t) => ({
+                      id: t.id,
+                      description: t.description,
+                      hsnSac: t.hsnSac,
+                      rate: Number(t.rate),
+                      gstRate: Number(t.gstRate),
+                    }))}
+                  />
                   <ContactsImportButton clientCompanyId={client.id} />
                   <ExportDebtorsButton
                     clientName={client.displayName}
@@ -654,7 +680,17 @@ export default async function ClientDetailPage({
                       className={`row-interactive ${i > 0 ? "border-t border-subtle" : "border-t border-subtle"}`}
                     >
                       <td className="px-8 py-4 font-medium text-ink">
-                        {inv.billRef}
+                        <div className="flex items-center gap-2">
+                          {inv.billRef}
+                          {inv.origin === "CREDFLOAT" && (
+                            <span
+                              className="rounded-md border border-[rgba(0,113,227,0.25)] bg-[rgba(0,113,227,0.08)] px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider text-[#0057b7]"
+                              title="Generated inside Ledger — not yet synced back to Tally"
+                            >
+                              Ledger
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-8 py-4 text-ink-2">
                         {inv.party.mailingName || inv.party.tallyLedgerName}
