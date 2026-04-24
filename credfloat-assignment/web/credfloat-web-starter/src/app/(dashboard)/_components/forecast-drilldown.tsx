@@ -163,15 +163,27 @@ export function ForecastDrillDown({
                   </div>
                   <div className="text-right">
                     {r.daysToPay ? (
-                      <>
-                        <div className="tabular text-[13px] font-semibold text-ink">
-                          ~{r.daysToPay.days}d
-                        </div>
-                        <div className="tabular text-[10.5px] text-ink-3">
-                          {r.daysToPay.lowDays}–{r.daysToPay.highDays}d
-                          <ConfBadge c={r.daysToPay.confidence} />
-                        </div>
-                      </>
+                      r.daysToPay.days <= 1 && r.daysToPay.highDays <= 2 ? (
+                        <>
+                          <div className="text-[13px] font-semibold text-ink">
+                            Same day
+                          </div>
+                          <div className="tabular text-[10.5px] text-ink-3">
+                            cash-on-delivery
+                            <ConfBadge c={r.daysToPay.confidence} />
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="tabular text-[13px] font-semibold text-ink">
+                            ~{r.daysToPay.days}d
+                          </div>
+                          <div className="tabular text-[10.5px] text-ink-3">
+                            {r.daysToPay.lowDays}–{r.daysToPay.highDays}d
+                            <ConfBadge c={r.daysToPay.confidence} />
+                          </div>
+                        </>
+                      )
                     ) : (
                       <div className="text-[12px] text-ink-3">—</div>
                     )}

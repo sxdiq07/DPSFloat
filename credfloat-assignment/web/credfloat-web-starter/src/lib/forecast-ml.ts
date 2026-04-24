@@ -274,33 +274,35 @@ export async function trainFirmModel(
     debtorDays.set(a.invoice.partyId, arr);
   }
 
-  // Per-debtor percentiles. We include every sample where credit
-  // terms were actually offered — even if the customer paid on
-  // day 0, that's a useful "pays very fast" signal. Pure cash
-  // sales (dueDate == billDate AND daysToPay == 0) are excluded
-  // so they don't collapse the median.
+  // Per-debtor percentiles — use EVERY sample we have, including
+  // same-day receipts. In Tally data, receiptDate is often recorded
+  // equal to billDate even for credit sales (bookkeeping habit), so
+  // filtering them out strips most debtors of all signal. A median
+  // of 0 for a specific debtor is itself informative ("same-day
+  // payer, safe for short credit terms") — the UI renders it as
+  // "Same day" and recommends the shortest credit ladder entry.
   const debtorMedianDays = new Map<string, number>();
   const debtorP25Days = new Map<string, number>();
   const debtorP75Days = new Map<string, number>();
   const debtorSampleSize = new Map<string, number>();
   for (const [partyId, samples] of debtorDays.entries()) {
-    const credit = samples
-      .filter((s) => s.hadCredit || s.days > 0)
-      .map((s) => s.days);
-    debtorSampleSize.set(partyId, credit.length);
-    if (credit.length === 0) continue;
-    debtorMedianDays.set(partyId, median(credit));
-    debtorP25Days.set(partyId, percentile(credit, 0.25));
-    debtorP75Days.set(partyId, percentile(credit, 0.75));
+    const days = samples.map((s) => s.days);
+    debtorSampleSize.set(partyId, days.length);
+    if (days.length === 0) continue;
+    debtorMedianDays.set(partyId, median(days));
+    debtorP25Days.set(partyId, percentile(days, 0.25));
+    debtorP75Days.set(partyId, percentile(days, 0.75));
   }
+  // Firm-wide percentiles filter out pure cash sales (dueDate ==
+  // billDate AND daysToPay == 0) so the fallback shown to brand-new
+  // debtors reflects the firm's typical CREDIT cycle, not a mix
+  // dominated by cash-register bookkeeping.
   const allCreditDays: number[] = [];
   for (const samples of debtorDays.values()) {
     for (const s of samples) {
       if (s.hadCredit || s.days > 0) allCreditDays.push(s.days);
     }
   }
-  // Firm-wide percentiles on credit-offered bills only. Industry
-  // default 30d if a firm has no credit-offered bills at all.
   const firmMedianDays =
     allCreditDays.length > 0 ? median(allCreditDays) : 30;
   const firmP25Days =
