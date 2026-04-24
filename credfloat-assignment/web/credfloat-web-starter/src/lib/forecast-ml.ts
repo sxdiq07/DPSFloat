@@ -387,6 +387,11 @@ export function predictWithModel(
   features: MlFeatureRow[],
 ): Record<HorizonDays, number[]> {
   const out: Partial<Record<HorizonDays, number[]>> = {};
+  // Empty feature matrix — skip the library entirely, it will
+  // crash on Matrix.checkMatrix with zero rows.
+  if (features.length === 0) {
+    return { 7: [], 14: [], 30: [], 60: [], 90: [] };
+  }
   for (const h of [7, 14, 30, 60, 90] as const) {
     const clf = bundle.models[h];
     if (!clf) {
@@ -396,15 +401,20 @@ export function predictWithModel(
     // predict returns array of integer labels (0/1). For probability
     // we use the underlying forest's predictProbability when
     // available; otherwise fall back to binary.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const predictor = clf as any;
-    if (typeof predictor.predictProbability === "function") {
-      const probs = predictor.predictProbability(features) as number[][];
-      // probs[i] = [P(class=0), P(class=1)] — take the latter
-      out[h] = probs.map((p) => p[1] ?? 0);
-    } else {
-      const labels = clf.predict(features) as number[];
-      out[h] = labels.map((l) => (l === 1 ? 1 : 0));
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const predictor = clf as any;
+      if (typeof predictor.predictProbability === "function") {
+        const probs = predictor.predictProbability(features) as number[][];
+        // probs[i] = [P(class=0), P(class=1)] — take the latter
+        out[h] = probs.map((p) => p[1] ?? 0);
+      } else {
+        const labels = clf.predict(features) as number[];
+        out[h] = labels.map((l) => (l === 1 ? 1 : 0));
+      }
+    } catch {
+      // A single horizon failing shouldn't crash the whole forecast.
+      out[h] = features.map(() => 0);
     }
   }
   return out as Record<HorizonDays, number[]>;
@@ -422,6 +432,9 @@ export function predictDaysToPayPerBill(
   features: MlFeatureRow[],
 ): { p25: number[]; p50: number[]; p75: number[] } {
   const n = features.length;
+  // Empty feature matrix crashes ml-random-forest's Matrix.checkMatrix.
+  // Short-circuit before we get there.
+  if (n === 0) return { p25: [], p50: [], p75: [] };
   const reg = bundle.daysToPay;
   if (!reg) {
     const fallback = Math.max(1, Math.round(bundle.firmMedianDays || 30));
@@ -431,11 +444,22 @@ export function predictDaysToPayPerBill(
       p75: new Array(n).fill(fallback + 14),
     };
   }
-  const p50 = reg.regressor.predict(features) as number[];
-  // ±0.6745σ → P25/P75 for an approximately normal residual.
-  const halfBand = 0.6745 * reg.residualStdDays;
-  const p25 = p50.map((v) => Math.max(0, Math.round(v - halfBand)));
-  const p75 = p50.map((v) => Math.max(0, Math.round(v + halfBand)));
-  const p50r = p50.map((v) => Math.max(0, Math.round(v)));
-  return { p25, p50: p50r, p75 };
+  try {
+    const p50 = reg.regressor.predict(features) as number[];
+    // ±0.6745σ → P25/P75 for an approximately normal residual.
+    const halfBand = 0.6745 * reg.residualStdDays;
+    const p25 = p50.map((v) => Math.max(0, Math.round(v - halfBand)));
+    const p75 = p50.map((v) => Math.max(0, Math.round(v + halfBand)));
+    const p50r = p50.map((v) => Math.max(0, Math.round(v)));
+    return { p25, p50: p50r, p75 };
+  } catch {
+    // Defensive — if the regressor trips on a weird feature shape,
+    // fall back silently rather than crashing the Overview page.
+    const fallback = Math.max(1, Math.round(bundle.firmMedianDays || 30));
+    return {
+      p25: new Array(n).fill(Math.max(1, fallback - 7)),
+      p50: new Array(n).fill(fallback),
+      p75: new Array(n).fill(fallback + 14),
+    };
+  }
 }
