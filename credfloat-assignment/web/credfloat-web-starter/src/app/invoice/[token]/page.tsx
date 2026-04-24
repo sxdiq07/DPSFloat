@@ -206,7 +206,7 @@ export default async function PublicInvoicePage({
 
         {/* Footer */}
         <footer className="pt-4 text-center text-[11px] text-ink-3">
-          Secured by Ledger · signed link valid 48h. If the amount or
+          Secured by DPS Ledger · signed link valid 48h. If the amount or
           details look wrong, please contact {firm.name} directly.
         </footer>
       </div>

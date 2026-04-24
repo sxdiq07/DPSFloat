@@ -102,7 +102,7 @@ export default async function PortalPage({
                 />
               </svg>
             </span>
-            <span className="text-[14px] font-semibold text-ink">Ledger</span>
+            <span className="text-[14px] font-semibold text-ink">DPS Ledger</span>
             <span className="text-ink-3">·</span>
             <span className="text-[13px] text-ink-2">Client portal</span>
           </div>
@@ -281,7 +281,7 @@ export default async function PortalPage({
         </section>
 
         <footer className="text-center text-[11.5px] text-ink-3">
-          Powered by Ledger · an internal tool by DPS &amp; Co
+          Powered by DPS Ledger · an internal tool by DPS &amp; Co
         </footer>
       </div>
     </div>

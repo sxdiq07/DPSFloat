@@ -59,7 +59,7 @@ export default async function DashboardLayout({
                 />
               </svg>
             </span>
-            <span>Ledger</span>
+            <span>DPS Ledger</span>
             <SyncHealthDot
               lastSyncedAt={lastSync?.lastSyncedAt?.toISOString() ?? null}
             />

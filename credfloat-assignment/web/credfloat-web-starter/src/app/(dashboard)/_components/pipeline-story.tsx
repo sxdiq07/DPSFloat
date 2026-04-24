@@ -64,7 +64,7 @@ export function PipelineStory({
             How Ledger works for you
           </p>
           <h2 className="mt-3 text-[26px] font-semibold leading-[1.15] tracking-tight text-ink">
-            Today, Ledger is tracking{" "}
+            Today, DPS Ledger is tracking{" "}
             <span className="tabular font-semibold text-ink">
               {totalOutstandingCompact}
             </span>{" "}

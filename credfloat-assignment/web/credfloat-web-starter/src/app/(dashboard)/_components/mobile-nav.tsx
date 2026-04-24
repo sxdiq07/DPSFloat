@@ -32,7 +32,7 @@ export function MobileNav() {
       </SheetTrigger>
       <SheetContent side="left" className="w-72 p-0">
         <SheetHeader className="border-b border-subtle p-6">
-          <SheetTitle className="text-[18px]">Ledger</SheetTitle>
+          <SheetTitle className="text-[18px]">DPS Ledger</SheetTitle>
         </SheetHeader>
         <nav className="p-3">
           {links.map((link) => {

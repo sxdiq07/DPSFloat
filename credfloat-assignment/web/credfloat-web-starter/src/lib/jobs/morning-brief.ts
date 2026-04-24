@@ -127,7 +127,7 @@ export async function runMorningBrief(): Promise<{
           .then((c) => c?.displayName ?? null)
       : null;
 
-    const subject = `Ledger · morning brief · ${formatINRCompact(totalOutstanding)} outstanding`;
+    const subject = `DPS Ledger · morning brief · ${formatINRCompact(totalOutstanding)} outstanding`;
 
     const lines = [
       `<p style="margin:0 0 14px">Good morning.</p>`,
@@ -164,7 +164,7 @@ export async function runMorningBrief(): Promise<{
       `<p style="margin:0 0 14px"><a href="${process.env.NEXTAUTH_URL ?? "http://localhost:3000"}/" style="color:#0071e3">Open Ledger →</a></p>`,
     );
 
-    const html = `<!doctype html><html><body style="font-family:-apple-system,'SF Pro Display','Segoe UI',sans-serif;max-width:560px;margin:20px auto;padding:20px;color:#1d1d1f;line-height:1.5;font-size:15px">${lines.join("")}<hr style="margin-top:24px;border:none;border-top:1px solid #e8e8ed"><p style="font-size:11px;color:#86868b">Sent by Ledger, DPS &amp; Co internal tool.</p></body></html>`;
+    const html = `<!doctype html><html><body style="font-family:-apple-system,'SF Pro Display','Segoe UI',sans-serif;max-width:560px;margin:20px auto;padding:20px;color:#1d1d1f;line-height:1.5;font-size:15px">${lines.join("")}<hr style="margin-top:24px;border:none;border-top:1px solid #e8e8ed"><p style="font-size:11px;color:#86868b">Sent by DPS Ledger, internal tool for DPS &amp; Co.</p></body></html>`;
 
     let sent = 0;
     let failed = 0;

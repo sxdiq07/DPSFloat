@@ -5,8 +5,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { ServiceWorkerRegistrar } from "@/components/sw-register";
 
 export const metadata: Metadata = {
-  title: "Ledger · DPS & Co",
-  description: "The intelligent layer on top of your Tally ledger.",
+  title: "DPS Ledger · DPS & Co",
+  description: "The intelligent layer on top of your Tally ledger, built for DPS & Co.",
   manifest: "/manifest.json",
   icons: {
     icon: [{ url: "/icon-192.svg", type: "image/svg+xml" }],
@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Ledger",
+    title: "DPS Ledger",
   },
 };
 

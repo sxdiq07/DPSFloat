@@ -211,7 +211,7 @@ export async function renderLedgerPdf(
     try {
       const { dataUrl } = await buildUpiQr({
         vpa: payment.upiId,
-        payeeName: firmName || "CredFloat",
+        payeeName: firmName || "DPS Ledger",
         amount: data.closingBalance > 0 ? data.closingBalance : undefined,
         note: `Ledger ${data.party.name.slice(0, 40)}`,
       });

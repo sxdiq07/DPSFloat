@@ -202,7 +202,7 @@ async function renderPaymentBlock(
       const { dataUrl } = await buildUpiQr(
         {
           vpa: payment.upiId,
-          payeeName: payment.payeeName ?? "CredFloat",
+          payeeName: payment.payeeName ?? "DPS Ledger",
           amount: amount > 0 ? amount : undefined,
           note,
         },

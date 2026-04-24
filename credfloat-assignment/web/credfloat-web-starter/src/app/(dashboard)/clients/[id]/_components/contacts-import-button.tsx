@@ -92,7 +92,7 @@ export function ContactsImportButton({
     const dataUrl = await getContactImportTemplate();
     const a = document.createElement("a");
     a.href = dataUrl;
-    a.download = "credfloat_contacts_template.xlsx";
+    a.download = "dps_ledger_contacts_template.xlsx";
     a.click();
   };
 

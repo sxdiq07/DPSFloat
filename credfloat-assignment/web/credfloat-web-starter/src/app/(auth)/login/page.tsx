@@ -65,7 +65,7 @@ export default function LoginPage() {
                 </svg>
               </div>
               <h1 className="text-[40px] font-semibold leading-[1.05] tracking-tightest text-ink">
-                Sign in to Ledger
+                Sign in to DPS Ledger
               </h1>
               <p className="mt-3 text-[16px] text-ink-3">
                 The intelligent layer on top of your Tally ledger.
@@ -193,7 +193,7 @@ export default function LoginPage() {
               className="mt-5 max-w-lg text-[16px] leading-relaxed text-ink-2 fade-in-up"
               style={{ animationDelay: "80ms" }}
             >
-              Ledger reads straight from your Tally installs, flags who owes
+              DPS Ledger reads straight from your Tally installs, flags who owes
               what, and sends the reminders — so the firm&apos;s team can focus
               on the conversations that actually move money.
             </p>
