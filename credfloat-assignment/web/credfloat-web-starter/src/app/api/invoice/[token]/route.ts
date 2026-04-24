@@ -49,10 +49,23 @@ export async function GET(
   const safe = partyName.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 40);
   const refSafe = invoice.billRef.replace(/[^A-Za-z0-9_-]+/g, "_");
 
+  // `?as=tax` forces the formal Tax Invoice layout regardless of
+  // origin. Used by the "Download as Tax Invoice" menu option so a
+  // Tally-synced bill can be reprinted in GST format when the
+  // debtor asks for a proper tax document. `?as=reminder` forces
+  // the soft payment-reminder layout (useful if a CREDFLOAT bill
+  // needs a casual nudge).
+  const reqUrl = new URL(_req.url);
+  const asParam = reqUrl.searchParams.get("as");
+  const forceTax = asParam === "tax";
+  const forceReminder = asParam === "reminder";
+  const wantTaxInvoice =
+    forceTax || (invoice.origin === "CREDFLOAT" && !forceReminder);
+
   // ────────────────────────────────────────────────────────────────
-  // CREDFLOAT origin → formal Tax Invoice PDF
+  // Tax Invoice PDF (CREDFLOAT-origin default, or explicit ?as=tax)
   // ────────────────────────────────────────────────────────────────
-  if (invoice.origin === "CREDFLOAT") {
+  if (wantTaxInvoice) {
     const sup = invoice.clientCompany;
     const cons = {
       name: partyName,
@@ -68,6 +81,53 @@ export async function GET(
           gstin: invoice.recipientGstin ?? invoice.party.gstin ?? null,
         }
       : cons;
+
+    // Tally-synced bills frequently lack line items / tax breakdown /
+    // consignee fields. Synthesize safe defaults so the renderer
+    // always gets a well-formed payload. Only invoices created in
+    // the portal (origin=CREDFLOAT) carry the full set natively.
+    const grandTotal = Number(invoice.originalAmount);
+    const taxableRaw = Number(invoice.taxableAmount ?? 0);
+    const cgstRaw = Number(invoice.cgstAmount ?? 0);
+    const sgstRaw = Number(invoice.sgstAmount ?? 0);
+    const igstRaw = Number(invoice.igstAmount ?? 0);
+    const hasTaxBreakdown =
+      taxableRaw > 0 && cgstRaw + sgstRaw + igstRaw > 0;
+    const taxableTotal = hasTaxBreakdown ? taxableRaw : grandTotal;
+    const cgstTotal = hasTaxBreakdown ? cgstRaw : 0;
+    const sgstTotal = hasTaxBreakdown ? sgstRaw : 0;
+    const igstTotal = hasTaxBreakdown ? igstRaw : 0;
+
+    const items =
+      invoice.lineItems.length > 0
+        ? invoice.lineItems.map((li) => ({
+            description: li.description,
+            hsnSac: li.hsnSac,
+            unit: li.unit,
+            quantity: Number(li.quantity),
+            rate: Number(li.rate),
+            amount: Number(li.taxableAmount),
+            gstRate: Number(li.gstRate),
+          }))
+        : [
+            {
+              description:
+                invoice.notes?.trim() ||
+                `Goods / services — Invoice ${invoice.billRef}`,
+              hsnSac: null,
+              unit: null,
+              quantity: 1,
+              rate: taxableTotal,
+              amount: taxableTotal,
+              gstRate: hasTaxBreakdown
+                ? Math.round(
+                    ((cgstTotal + sgstTotal + igstTotal) /
+                      Math.max(1, taxableTotal)) *
+                      100,
+                  )
+                : 0,
+            },
+          ];
 
     try {
       const pdf = await renderTaxInvoicePdf({
@@ -95,24 +155,14 @@ export async function GET(
           destination: invoice.destination,
           termsOfDelivery: invoice.termsOfDelivery,
         },
-        items: invoice.lineItems.map((li) => ({
-          description: li.description,
-          hsnSac: li.hsnSac,
-          unit: li.unit,
-          quantity: Number(li.quantity),
-          rate: Number(li.rate),
-          amount: Number(li.taxableAmount),
-          gstRate: Number(li.gstRate),
-        })),
+        items,
         totals: {
-          taxableTotal: Number(invoice.taxableAmount ?? 0),
-          cgstTotal: Number(invoice.cgstAmount ?? 0),
-          sgstTotal: Number(invoice.sgstAmount ?? 0),
-          igstTotal: Number(invoice.igstAmount ?? 0),
-          grandTotal: Number(invoice.originalAmount),
-          isIntraState:
-            Number(invoice.cgstAmount ?? 0) + Number(invoice.sgstAmount ?? 0) >
-            0,
+          taxableTotal,
+          cgstTotal,
+          sgstTotal,
+          igstTotal,
+          grandTotal,
+          isIntraState: cgstTotal + sgstTotal > 0,
         },
         signatoryLabel: `for ${sup.displayName}`,
       });

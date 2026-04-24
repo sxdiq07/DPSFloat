@@ -1,7 +1,16 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Share2, Loader2, Copy, FileText, MessageCircle, Mail, Check } from "lucide-react";
+import {
+  Share2,
+  Loader2,
+  Copy,
+  FileText,
+  FileDown,
+  MessageCircle,
+  Mail,
+  Check,
+} from "lucide-react";
 import { toast } from "sonner";
 import { createInvoiceShareLinks } from "../_actions/share-invoice";
 
@@ -92,6 +101,17 @@ export function InvoiceShareButton({ invoiceId }: { invoiceId: string }) {
             >
               <FileText className="h-3.5 w-3.5 text-ink-3" />
               Download PDF
+            </a>
+            <a
+              href={`${links.pdfUrl}?as=tax`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-ink-2 hover:bg-[var(--color-surface-2)]"
+              title="Render as formal GST Tax Invoice (CGST/SGST breakdown, HSN summary, PAN, signatory)"
+            >
+              <FileDown className="h-3.5 w-3.5 text-ink-3" />
+              Download as Tax Invoice
             </a>
             <button
               type="button"
