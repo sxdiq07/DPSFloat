@@ -302,15 +302,21 @@ export type DaysToPayRow = {
  * term. The rule set mirrors what a conservative accountant would
  * do manually: offer the upper realistic payment window, add a
  * safety buffer, snap to standard terms, and flag edge cases.
+ *
+ * Critical: "slow_payer" only fires on per-debtor data we actually
+ * trust. A high firm-wide P75 isn't evidence any INDIVIDUAL debtor
+ * is slow — that should default to "limited_history" instead.
  */
 function recommendCreditTerm(
   p75Days: number,
   sampleSize: number,
 ): { days: number; caveat: DaysToPayRow["termCaveat"] } {
-  // Chronic slow payer — don't pretend credit terms will help.
-  if (p75Days > 75) return { days: 90, caveat: "slow_payer" };
-  // Not enough history — default to industry-standard 30 days.
+  // Not enough per-debtor history — always default to 30 days.
+  // We refuse to flag someone "chronic late payer" without their
+  // own track record; that would unfairly penalize new relationships.
   if (sampleSize < 3) return { days: 30, caveat: "limited_history" };
+  // Chronic slow payer — per-debtor evidence says > 75 days.
+  if (p75Days > 75) return { days: 90, caveat: "slow_payer" };
   // Add 3-day buffer; snap to the business-terms ladder.
   const target = p75Days + 3;
   let days: number;
@@ -431,25 +437,34 @@ export async function computeForecastML(
 
   // Days-to-pay uses EMPIRICAL per-debtor history (medians + IQR).
   // This is what experienced CA firms already trust by hand —
-  // "Lal Ji Store pays in ~20 days, Dubai Mela takes 60+." The
-  // regressor was too noisy at this dataset size, so we skip it
-  // and use raw historical percentiles from the model bundle.
+  // "Lal Ji Store pays in ~20 days, Dubai Mela takes 60+."
   //
-  // Confidence still scales with sampleSize so low-history debtors
-  // are correctly flagged "new debtor" in the UI.
+  // We prefer the debtor's OWN numbers whenever they have at least
+  // one credit-cycle bill, even if the sample is small. Showing the
+  // same firm-wide median on every row feels fake to partners, and
+  // even a single data point on a specific debtor is more actionable
+  // than a blanket average.
+  //
+  // Confidence tier still scales with sample size: high ≥10,
+  // medium ≥3, low ≥1. Debtors with zero credit history use the
+  // firm-wide fallback (or an industry default) and are flagged
+  // "new debtor" in the Safe-terms column.
   const daysToPayByParty = new Map<string, DaysToPayRow>();
   for (const [partyId, outstanding] of outstandingByParty) {
     const n = model.debtorSampleSize.get(partyId) ?? 0;
+    const ownMedian = model.debtorMedianDays.get(partyId);
+    const ownP25 = model.debtorP25Days.get(partyId);
+    const ownP75 = model.debtorP75Days.get(partyId);
     let p50: number;
     let p25: number;
     let p75: number;
-    if (n >= 3) {
-      p50 = model.debtorMedianDays.get(partyId) ?? model.firmMedianDays;
-      p25 = model.debtorP25Days.get(partyId) ?? model.firmP25Days;
-      p75 = model.debtorP75Days.get(partyId) ?? model.firmP75Days;
+    if (n >= 1 && ownMedian !== undefined) {
+      // Use the debtor's own data — even if it's thin, it's theirs.
+      p50 = ownMedian;
+      p25 = ownP25 ?? ownMedian;
+      p75 = ownP75 ?? ownMedian;
     } else {
-      // Not enough history on this debtor — fall back to firm-wide
-      // percentiles so the row still shows something trustable.
+      // Zero credit history — firm-wide fallback.
       p50 = model.firmMedianDays;
       p25 = model.firmP25Days;
       p75 = model.firmP75Days;
