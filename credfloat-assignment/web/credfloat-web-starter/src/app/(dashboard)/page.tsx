@@ -10,6 +10,10 @@ import { StatCard } from "@/components/ui/stat-card";
 import { StackedBar } from "@/components/ui/stacked-bar";
 import { PipelineStory } from "./_components/pipeline-story";
 import { DuplicateExposure } from "./_components/duplicate-exposure";
+import {
+  ForecastDrillDown,
+  type ForecastDrillRow,
+} from "./_components/forecast-drilldown";
 import { groupDuplicates, type DupCandidate } from "@/lib/duplicates";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -346,20 +350,19 @@ export default async function OverviewPage() {
   // handles the missing-data case.
   const backtest = await backtestForecast(firmId, 3).catch(() => null);
 
-  // Top contributing debtors for the 30-day horizon — actionable
-  // "chase these five and you probably get 60% of the expected
-  // inflow" list.
-  const topForecastByParty = [...forecast.byParty.entries()]
-    .map(([partyId, h]) => ({ partyId, amount: h[30] }))
-    .filter((x) => x.amount > 0)
-    .sort((a, b) => b.amount - a.amount)
-    .slice(0, 5);
-  const topForecastPartyIds = topForecastByParty.map((x) => x.partyId);
-  const topForecastParties =
-    topForecastPartyIds.length === 0
+  // Debtor-wise drill-down — EVERY debtor contributing to the 30-day
+  // forecast, plus their ML-predicted days-to-pay. The UI handles
+  // ranking, filtering, and top-10-vs-full toggle.
+  const drillPartyIds = [...forecast.byParty.keys()].filter((pid) => {
+    const amts = forecast.byParty.get(pid);
+    if (!amts) return false;
+    return amts[7] > 0 || amts[14] > 0 || amts[30] > 0 || amts[60] > 0;
+  });
+  const drillParties =
+    drillPartyIds.length === 0
       ? []
       : await prisma.party.findMany({
-          where: { id: { in: topForecastPartyIds } },
+          where: { id: { in: drillPartyIds } },
           select: {
             id: true,
             tallyLedgerName: true,
@@ -368,20 +371,33 @@ export default async function OverviewPage() {
             clientCompany: { select: { displayName: true } },
           },
         });
-  const topForecastRows = topForecastByParty
-    .map((x) => {
-      const p = topForecastParties.find((pp) => pp.id === x.partyId);
-      if (!p) return null;
+  const drillPartyMeta = new Map(drillParties.map((p) => [p.id, p]));
+  const drillRows: ForecastDrillRow[] = drillPartyIds
+    .map((pid) => {
+      const meta = drillPartyMeta.get(pid);
+      if (!meta) return null;
+      const amts = forecast.byParty.get(pid) ?? { 7: 0, 14: 0, 30: 0, 60: 0, 90: 0 };
+      const dtp = forecast.daysToPayByParty.get(pid);
       return {
-        partyId: p.id,
-        name: p.mailingName || p.tallyLedgerName,
-        clientCompanyId: p.clientCompanyId,
-        clientCompanyName: p.clientCompany.displayName,
-        amount: x.amount,
+        partyId: pid,
+        name: meta.mailingName || meta.tallyLedgerName,
+        clientCompanyId: meta.clientCompanyId,
+        clientCompanyName: meta.clientCompany.displayName,
+        amounts: { 7: amts[7], 14: amts[14], 30: amts[30], 60: amts[60] },
+        daysToPay: dtp
+          ? {
+              days: dtp.days,
+              lowDays: dtp.lowDays,
+              highDays: dtp.highDays,
+              sampleSize: dtp.sampleSize,
+              confidence: dtp.confidence,
+            }
+          : null,
+        outstandingAmount: dtp?.outstandingAmount ?? 0,
       };
     })
-    .filter((x): x is NonNullable<typeof x> => x !== null);
-  const topForecastSum = topForecastRows.reduce((s, r) => s + r.amount, 0);
+    .filter((r): r is ForecastDrillRow => r !== null)
+    .sort((a, b) => b.amounts[30] - a.amounts[30]);
 
   // Latest run per job — cronRuns is pre-sorted desc by startedAt so
   // first occurrence of each job name wins.
@@ -611,50 +627,16 @@ export default async function OverviewPage() {
           ))}
         </div>
 
-        {/* Top contributing debtors — actionable "chase these 5
-            and you probably get most of the expected inflow" list */}
-        {topForecastRows.length > 0 && (
-          <div className="border-t border-subtle px-10 py-6">
-            <div className="flex items-end justify-between">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3">
-                  Where the 30-day cash is coming from
-                </p>
-                <p className="mt-1 text-[13px] text-ink-3">
-                  Top {topForecastRows.length} debtors expected to
-                  contribute{" "}
-                  <span className="font-semibold text-ink-2">
-                    {formatINR(topForecastSum)}
-                  </span>
-                  {" "}
-                  ({forecast.horizons[30] > 0
-                    ? `${((topForecastSum / forecast.horizons[30]) * 100).toFixed(0)}% of the 30-day forecast`
-                    : "of the 30-day forecast"}).
-                </p>
-              </div>
-            </div>
-            <div className="mt-4 divide-y divide-subtle rounded-xl border border-subtle">
-              {topForecastRows.map((r) => (
-                <Link
-                  key={r.partyId}
-                  href={`/clients/${r.clientCompanyId}`}
-                  className="flex items-center justify-between gap-4 px-4 py-3 transition-colors hover:bg-[var(--color-surface-2)]"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-[14px] font-medium text-ink">
-                      {r.name}
-                    </div>
-                    <div className="text-[11.5px] text-ink-3">
-                      {r.clientCompanyName}
-                    </div>
-                  </div>
-                  <div className="tabular shrink-0 text-[14px] font-semibold text-ink">
-                    {formatINR(r.amount)}
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
+        {/* Debtor-wise drill-down — explains where the aggregate
+            horizon numbers come from, and overlays the ML days-to-pay
+            prediction so partners can decide credit-term policy per
+            debtor, not just chase "the top 5." */}
+        {drillRows.length > 0 && (
+          <ForecastDrillDown
+            rows={drillRows}
+            total30={forecast.horizons[30]}
+            totalOutstanding={totalOutstanding}
+          />
         )}
 
         {/* Model provenance — shows under-the-hood details so partners
@@ -663,7 +645,10 @@ export default async function OverviewPage() {
           <div className="border-t border-subtle bg-[var(--color-surface-2)] px-10 py-4">
             <div className="flex flex-wrap items-center gap-x-8 gap-y-2 text-[11.5px] text-ink-3">
               <span>
-                Model: <span className="font-semibold text-ink-2">Random Forest · 80 trees</span>
+                Models:{" "}
+                <span className="font-semibold text-ink-2">
+                  Random Forest Classifier (per-horizon) + Regressor (days-to-pay) · 80 trees each
+                </span>
               </span>
               <span>
                 Trained on{" "}

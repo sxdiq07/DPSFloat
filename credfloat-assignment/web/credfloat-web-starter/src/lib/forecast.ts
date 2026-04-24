@@ -19,6 +19,7 @@ import { prisma } from "@/lib/prisma";
 import {
   getFirmModel,
   predictWithModel,
+  predictDaysToPayPerBill,
   extractFeatures,
   FEATURE_NAMES,
   type MlModelBundle,
@@ -247,9 +248,29 @@ export type ForecastInput = {
   velocityMultipliers: Map<string, number>;
 };
 
+/**
+ * Per-debtor days-to-pay prediction from the ML regressor.
+ * `days` is the point estimate (rounded to whole days); `lowDays`
+ * and `highDays` form a P25/P75 band so we can render "pays in
+ * ~24 days (typically 18–32)." `sampleSize` is the number of
+ * historical paid bills for this debtor — drives the confidence
+ * label in the UI ("high" when n ≥ 10, "medium" ≥ 3, else "low").
+ * `outstandingAmount` is the open balance the debtor has RIGHT NOW,
+ * so the UI can show "can wait up to 30 days on ₹2.4L".
+ */
+export type DaysToPayRow = {
+  days: number;
+  lowDays: number;
+  highDays: number;
+  sampleSize: number;
+  confidence: "high" | "medium" | "low";
+  outstandingAmount: number;
+};
+
 export type Forecast = {
   horizons: Record<Horizon, number>;
   byParty: Map<string, Record<Horizon, number>>;
+  daysToPayByParty: Map<string, DaysToPayRow>;
 };
 
 export type MlForecastMeta = {
@@ -304,6 +325,31 @@ export async function computeForecastML(
       baseRates,
       velocityMultipliers: velocity,
     });
+    // No trained regressor — derive a crude days-to-pay estimate from
+    // the velocity multiplier we already have (multiplier > 1 means
+    // faster than firm median).
+    const firmMedian = 30; // safe default before we have any history
+    const daysToPayByParty = new Map<string, DaysToPayRow>();
+    const outstandingByParty = new Map<string, number>();
+    for (const inv of invoicesFromDb) {
+      outstandingByParty.set(
+        inv.partyId,
+        (outstandingByParty.get(inv.partyId) ?? 0) + inv.outstandingAmount,
+      );
+    }
+    for (const [partyId, outstanding] of outstandingByParty) {
+      const mult = velocity.get(partyId) ?? 1;
+      const days = Math.max(1, Math.round(firmMedian / Math.max(0.5, mult)));
+      daysToPayByParty.set(partyId, {
+        days,
+        lowDays: Math.max(1, days - 10),
+        highDays: days + 14,
+        sampleSize: 0,
+        confidence: "low",
+        outstandingAmount: outstanding,
+      });
+    }
+    heuristic.daysToPayByParty = daysToPayByParty;
     return {
       forecast: heuristic,
       meta: {
@@ -334,6 +380,7 @@ export async function computeForecastML(
   );
 
   const probs = predictWithModel(model, featRows);
+  const dtp = predictDaysToPayPerBill(model, featRows);
 
   const horizons: Record<Horizon, number> = {
     7: 0,
@@ -343,6 +390,15 @@ export async function computeForecastML(
     90: 0,
   };
   const byParty = new Map<string, Record<Horizon, number>>();
+
+  // Per-debtor accumulator for days-to-pay — we aggregate by taking
+  // the outstanding-weighted average across their open bills so
+  // larger bills dominate the estimate (what partners actually care
+  // about: "when will the BIG one land").
+  const dtpAccum = new Map<
+    string,
+    { wSum: number; wSumLow: number; wSumHigh: number; weight: number; outstanding: number }
+  >();
 
   for (let i = 0; i < invoicesFromDb.length; i++) {
     const inv = invoicesFromDb[i];
@@ -377,6 +433,22 @@ export async function computeForecastML(
       60: (byParty.get(inv.partyId)?.[60] ?? 0) + rowTotals[60],
       90: (byParty.get(inv.partyId)?.[90] ?? 0) + rowTotals[90],
     });
+
+    // Accumulate days-to-pay weighted by outstanding amount.
+    const w = Math.max(0, inv.outstandingAmount);
+    const slot = dtpAccum.get(inv.partyId) ?? {
+      wSum: 0,
+      wSumLow: 0,
+      wSumHigh: 0,
+      weight: 0,
+      outstanding: 0,
+    };
+    slot.wSum += (dtp.p50[i] ?? 0) * w;
+    slot.wSumLow += (dtp.p25[i] ?? 0) * w;
+    slot.wSumHigh += (dtp.p75[i] ?? 0) * w;
+    slot.weight += w;
+    slot.outstanding += w;
+    dtpAccum.set(inv.partyId, slot);
   }
 
   for (const h of [7, 14, 30, 60, 90] as const) {
@@ -403,8 +475,30 @@ export async function computeForecastML(
     .sort((a, b) => b.weight - a.weight)
     .slice(0, 4);
 
+  // Finalize per-debtor days-to-pay. Confidence tier is based on how
+  // many historical paid bills the debtor has — more history, tighter
+  // trust in the number.
+  const daysToPayByParty = new Map<string, DaysToPayRow>();
+  for (const [partyId, slot] of dtpAccum) {
+    if (slot.weight <= 0) continue;
+    const days = Math.max(0, Math.round(slot.wSum / slot.weight));
+    const lowDays = Math.max(0, Math.round(slot.wSumLow / slot.weight));
+    const highDays = Math.max(days, Math.round(slot.wSumHigh / slot.weight));
+    const sampleSize = model.debtorSampleSize.get(partyId) ?? 0;
+    const confidence: DaysToPayRow["confidence"] =
+      sampleSize >= 10 ? "high" : sampleSize >= 3 ? "medium" : "low";
+    daysToPayByParty.set(partyId, {
+      days,
+      lowDays,
+      highDays,
+      sampleSize,
+      confidence,
+      outstandingAmount: Math.round(slot.outstanding),
+    });
+  }
+
   return {
-    forecast: { horizons, byParty },
+    forecast: { horizons, byParty, daysToPayByParty },
     meta: {
       method: "random_forest",
       samples: model.samples,
@@ -600,5 +694,8 @@ export function computeForecast(input: ForecastInput): Forecast {
     });
   }
 
-  return { horizons, byParty };
+  // daysToPayByParty stays empty in the sync heuristic path —
+  // callers (notably computeForecastML's cold-start branch) populate
+  // it with a velocity-derived fallback before surfacing to the UI.
+  return { horizons, byParty, daysToPayByParty: new Map() };
 }

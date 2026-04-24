@@ -19,7 +19,7 @@
 import { prisma } from "@/lib/prisma";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — ml-random-forest ships without types
-import { RandomForestClassifier } from "ml-random-forest";
+import { RandomForestClassifier, RandomForestRegression } from "ml-random-forest";
 
 export type HorizonDays = 7 | 14 | 30 | 60 | 90;
 
@@ -60,6 +60,26 @@ type TrainingRow = {
   daysToPay: number;
 };
 
+/**
+ * Days-to-pay regressor — predicts the continuous target
+ * (days from billDate to first receipt) instead of a binary
+ * "paid within N days" classification. Used to answer the
+ * partner-facing question "how much time should we give this
+ * debtor?" Uses Random Forest Regression for the point estimate
+ * and training-residual spread to derive a P25/P75 range.
+ */
+export type DaysToPayRegressor = {
+  regressor: InstanceType<typeof RandomForestRegression>;
+  /**
+   * Std. deviation of (actual - predicted) on the training set.
+   * Converted to P25/P75 via ±0.6745σ at inference time — gives
+   * the "typical range" surfaced in the UI.
+   */
+  residualStdDays: number;
+  /** Firm-wide median days — used as a last-resort fallback. */
+  firmMedianDays: number;
+};
+
 export type MlModelBundle = {
   // One classifier per horizon — multi-label binary classification.
   models: Record<HorizonDays, InstanceType<typeof RandomForestClassifier>>;
@@ -75,6 +95,12 @@ export type MlModelBundle = {
   debtorMedianDays: Map<string, number>;
   debtorSampleSize: Map<string, number>;
   firmMedianDays: number;
+  /**
+   * Days-to-pay regressor — trained alongside the classifiers
+   * on the same feature matrix but with daysToPay as the
+   * continuous target. Null when there isn't enough signal.
+   */
+  daysToPay: DaysToPayRegressor | null;
 };
 
 // -------------------------------------------------------------------
@@ -286,6 +312,43 @@ export async function trainFirmModel(
   // At least one horizon needs to have trained successfully.
   if (Object.keys(models).length === 0) return null;
 
+  // -----------------------------------------------------------------
+  // Days-to-pay regressor — continuous target. Identical features,
+  // same rows. Captures "how long from bill to first receipt."
+  // Used on the Overview to answer "how much credit time does this
+  // debtor actually need?" per debtor.
+  // -----------------------------------------------------------------
+  let daysToPay: DaysToPayRegressor | null = null;
+  try {
+    const reg = new RandomForestRegression({
+      seed: 42,
+      maxFeatures: 0.8,
+      replacement: true,
+      nEstimators: 80,
+    });
+    const regX = rows.map((r) => r.features);
+    const regY = rows.map((r) => r.daysToPay);
+    reg.train(regX, regY);
+    const predicted = reg.predict(regX) as number[];
+    // Residual std — proxy for prediction uncertainty. Used to
+    // surface a P25/P75 band around the point estimate.
+    let sumSq = 0;
+    for (let i = 0; i < regY.length; i++) {
+      const err = regY[i] - predicted[i];
+      sumSq += err * err;
+    }
+    const residualStdDays = Math.sqrt(sumSq / Math.max(1, regY.length));
+    daysToPay = {
+      regressor: reg,
+      residualStdDays,
+      firmMedianDays,
+    };
+  } catch {
+    // If the regressor fails (tiny dataset / degenerate splits),
+    // leave it null — callers fall back to the empirical median.
+    daysToPay = null;
+  }
+
   return {
     models: models as MlModelBundle["models"],
     samples: rows.length,
@@ -295,6 +358,7 @@ export async function trainFirmModel(
     debtorMedianDays,
     debtorSampleSize,
     firmMedianDays,
+    daysToPay,
   };
 }
 
@@ -344,4 +408,34 @@ export function predictWithModel(
     }
   }
   return out as Record<HorizonDays, number[]>;
+}
+
+/**
+ * Predict days-to-pay per bill using the regressor. Returns a
+ * central estimate (p50) plus a P25/P75 band derived from the
+ * training residual std — "expected to pay in ~24 days, typical
+ * range 18–32." When the regressor is missing, falls back to the
+ * firm median with a generous band so the UI never shows NaN.
+ */
+export function predictDaysToPayPerBill(
+  bundle: MlModelBundle,
+  features: MlFeatureRow[],
+): { p25: number[]; p50: number[]; p75: number[] } {
+  const n = features.length;
+  const reg = bundle.daysToPay;
+  if (!reg) {
+    const fallback = Math.max(1, Math.round(bundle.firmMedianDays || 30));
+    return {
+      p25: new Array(n).fill(Math.max(1, fallback - 7)),
+      p50: new Array(n).fill(fallback),
+      p75: new Array(n).fill(fallback + 14),
+    };
+  }
+  const p50 = reg.regressor.predict(features) as number[];
+  // ±0.6745σ → P25/P75 for an approximately normal residual.
+  const halfBand = 0.6745 * reg.residualStdDays;
+  const p25 = p50.map((v) => Math.max(0, Math.round(v - halfBand)));
+  const p75 = p50.map((v) => Math.max(0, Math.round(v + halfBand)));
+  const p50r = p50.map((v) => Math.max(0, Math.round(v)));
+  return { p25, p50: p50r, p75 };
 }
