@@ -257,21 +257,39 @@ export async function trainFirmModel(
     debtorDays.set(a.invoice.partyId, arr);
   }
 
+  // Exclude same-day payments (daysToPay === 0). In Tally data
+  // these usually mean cash sales or same-day settlement — the
+  // receipt was booked on the bill date, so there was never a
+  // credit cycle. Including them makes the median collapse to 0
+  // and the "safe terms" recommendation useless. For credit-cycle
+  // insight we only want bills that actually spent time unpaid.
   const debtorMedianDays = new Map<string, number>();
   const debtorP25Days = new Map<string, number>();
   const debtorP75Days = new Map<string, number>();
   const debtorSampleSize = new Map<string, number>();
   for (const [partyId, days] of debtorDays.entries()) {
-    debtorMedianDays.set(partyId, median(days));
-    debtorP25Days.set(partyId, percentile(days, 0.25));
-    debtorP75Days.set(partyId, percentile(days, 0.75));
-    debtorSampleSize.set(partyId, days.length);
+    const credit = days.filter((d) => d > 0);
+    // Sample size reflects CREDIT bills only — cash customers
+    // with 100% same-day payments register as "no credit history"
+    // so the UI correctly flags them "new debtor".
+    debtorSampleSize.set(partyId, credit.length);
+    if (credit.length === 0) continue;
+    debtorMedianDays.set(partyId, median(credit));
+    debtorP25Days.set(partyId, percentile(credit, 0.25));
+    debtorP75Days.set(partyId, percentile(credit, 0.75));
   }
   const allDays: number[] = [];
   for (const ds of debtorDays.values()) allDays.push(...ds);
-  const firmMedianDays = median(allDays);
-  const firmP25Days = percentile(allDays, 0.25);
-  const firmP75Days = percentile(allDays, 0.75);
+  const allCreditDays = allDays.filter((d) => d > 0);
+  // Firm-wide percentiles also on credit-only. If a firm has zero
+  // credit bills across its entire book (pure-cash business), fall
+  // back to industry-standard 30d so the UI doesn't show "0 days".
+  const firmMedianDays =
+    allCreditDays.length > 0 ? median(allCreditDays) : 30;
+  const firmP25Days =
+    allCreditDays.length > 0 ? percentile(allCreditDays, 0.25) : 15;
+  const firmP75Days =
+    allCreditDays.length > 0 ? percentile(allCreditDays, 0.75) : 45;
 
   // Build training rows — one per distinct invoice.
   const seen = new Set<string>();
