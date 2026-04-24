@@ -13,9 +13,7 @@ import { DuplicateExposure } from "./_components/duplicate-exposure";
 import { groupDuplicates, type DupCandidate } from "@/lib/duplicates";
 import { formatDistanceToNow } from "date-fns";
 import {
-  calibrateBaseRates,
-  computeForecast,
-  debtorVelocityMultipliers,
+  computeForecastML,
   backtestForecast,
 } from "@/lib/forecast";
 
@@ -256,47 +254,57 @@ export default async function OverviewPage() {
   const overdue90 = Number(overdue90Agg._sum.outstandingAmount ?? 0);
   const collectionsThisMonth = Number(collectionsAgg._sum.amount ?? 0);
 
-  // Cash-inflow forecast. Calibrates base rates from the firm's own
-  // receipt → bill timing history, then projects 30/60/90 day inflow
-  // across every open bill.
-  const [forecastBaseRates, velocity, openInvoicesForForecast, openPromises] =
-    await Promise.all([
-      calibrateBaseRates(firmId),
-      debtorVelocityMultipliers(firmId),
-      prisma.invoice.findMany({
-        where: {
-          clientCompany: { firmId },
-          status: "OPEN",
-          outstandingAmount: { gt: 0 },
-          deletedAt: null,
+  // Cash-inflow forecast. Random-forest classifier trained on the
+  // firm's own bill→receipt timing history; falls back to calibrated
+  // base rates when there isn't enough history to train.
+  const [openInvoicesForForecast, openPromises, disputedIds] = await Promise.all([
+    prisma.invoice.findMany({
+      where: {
+        clientCompany: { firmId },
+        status: "OPEN",
+        outstandingAmount: { gt: 0 },
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        partyId: true,
+        billDate: true,
+        dueDate: true,
+        originalAmount: true,
+        outstandingAmount: true,
+        ageBucket: true,
+        origin: true,
+      },
+    }),
+    prisma.promiseToPay.findMany({
+      where: {
+        status: "OPEN",
+        party: { clientCompany: { firmId } },
+        promisedBy: {
+          gte: new Date(),
+          lt: new Date(Date.now() + 90 * 86400_000),
         },
-        select: {
-          id: true,
-          partyId: true,
-          outstandingAmount: true,
-          ageBucket: true,
-        },
-      }),
-      prisma.promiseToPay.findMany({
-        where: {
-          status: "OPEN",
-          party: { clientCompany: { firmId } },
-          promisedBy: {
-            gte: new Date(),
-            lt: new Date(Date.now() + 90 * 86400_000),
+      },
+      include: {
+        party: {
+          select: {
+            id: true,
+            promises: { where: { status: { in: ["KEPT", "BROKEN"] } }, select: { status: true } },
           },
         },
-        include: {
-          party: {
-            select: {
-              id: true,
-              promises: { where: { status: { in: ["KEPT", "BROKEN"] } }, select: { status: true } },
-            },
-          },
-        },
-        orderBy: { promisedBy: "asc" },
-      }),
-    ]);
+      },
+      orderBy: { promisedBy: "asc" },
+    }),
+    prisma.invoice.findMany({
+      where: {
+        clientCompany: { firmId },
+        status: "DISPUTED",
+        deletedAt: null,
+      },
+      select: { id: true, partyId: true },
+    }),
+  ]);
+  const disputedPartyIds = new Set(disputedIds.map((d) => d.partyId));
 
   const promisesByParty = new Map<
     string,
@@ -317,17 +325,21 @@ export default async function OverviewPage() {
     }
   }
 
-  const forecast = computeForecast({
-    invoices: openInvoicesForForecast.map((i) => ({
+  const { forecast, meta: forecastMeta } = await computeForecastML(
+    firmId,
+    openInvoicesForForecast.map((i) => ({
       id: i.id,
       partyId: i.partyId,
+      billDate: i.billDate,
+      dueDate: i.dueDate,
+      originalAmount: Number(i.originalAmount),
       outstandingAmount: Number(i.outstandingAmount),
       ageBucket: i.ageBucket,
+      isDisputed: disputedPartyIds.has(i.partyId),
+      origin: i.origin,
     })),
     promisesByParty,
-    baseRates: forecastBaseRates,
-    velocityMultipliers: velocity,
-  });
+  );
 
   // Backtest — last 3 complete months, predicted vs actual.
   // Guarded: if the DB is too empty we fall back to zero — the UI
@@ -552,13 +564,24 @@ export default async function OverviewPage() {
               Predicted receipts over the next 7 to 90 days
             </h2>
             <p className="mt-1.5 max-w-2xl text-[15px] leading-relaxed text-ink-3">
-              Calibrated on this firm&apos;s actual receipt-vs-bill
-              timing history. Each open bill&apos;s expected payment
-              probability is weighted by the debtor&apos;s historical
-              payment velocity and any open promise-to-pay. The
-              accuracy badge reflects how close predictions were to
-              actuals over the last {backtest?.samples ?? 3} complete
-              month{(backtest?.samples ?? 3) === 1 ? "" : "s"}.
+              {forecastMeta.method === "random_forest" ? (
+                <>
+                  Random-forest classifier trained nightly on this
+                  firm&apos;s own bill-to-receipt history ({forecastMeta.samples.toLocaleString("en-IN")} historical pairs).
+                  Each open bill gets a per-horizon probability based on
+                  ageing, amount, debtor payment velocity, dispute state,
+                  and open promise-to-pay. Accuracy badge is measured on
+                  the last {backtest?.samples ?? 3} complete month
+                  {(backtest?.samples ?? 3) === 1 ? "" : "s"}.
+                </>
+              ) : (
+                <>
+                  Calibrated on this firm&apos;s receipt-vs-bill timing
+                  history. Once at least 30 paid bills accumulate, the
+                  system automatically upgrades to a random-forest model
+                  trained on those pairs.
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -630,6 +653,46 @@ export default async function OverviewPage() {
                   </div>
                 </Link>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* Model provenance — shows under-the-hood details so partners
+            can answer "why these numbers" if the manager probes. */}
+        {forecastMeta.method === "random_forest" && (
+          <div className="border-t border-subtle bg-[var(--color-surface-2)] px-10 py-4">
+            <div className="flex flex-wrap items-center gap-x-8 gap-y-2 text-[11.5px] text-ink-3">
+              <span>
+                Model: <span className="font-semibold text-ink-2">Random Forest · 80 trees</span>
+              </span>
+              <span>
+                Trained on{" "}
+                <span className="font-semibold text-ink-2">
+                  {forecastMeta.samples.toLocaleString("en-IN")} historical bills
+                </span>
+              </span>
+              {forecastMeta.trainedAt && (
+                <span>
+                  Last retrained{" "}
+                  <span className="font-semibold text-ink-2">
+                    {formatDistanceToNow(forecastMeta.trainedAt, {
+                      addSuffix: true,
+                    })}
+                  </span>
+                </span>
+              )}
+              {forecastMeta.topFeaturesFor30.length > 0 && (
+                <span>
+                  Top signals:{" "}
+                  <span className="font-semibold text-ink-2">
+                    {forecastMeta.topFeaturesFor30
+                      .filter((f) => f.weight > 0)
+                      .slice(0, 3)
+                      .map((f) => f.name.replace(/_/g, " "))
+                      .join(" · ") || "ageing, amount, velocity"}
+                  </span>
+                </span>
+              )}
             </div>
           </div>
         )}

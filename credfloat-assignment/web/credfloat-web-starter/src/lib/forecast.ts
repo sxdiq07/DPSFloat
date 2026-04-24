@@ -16,6 +16,13 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import {
+  getFirmModel,
+  predictWithModel,
+  extractFeatures,
+  FEATURE_NAMES,
+  type MlModelBundle,
+} from "@/lib/forecast-ml";
 
 export type Horizon = 7 | 14 | 30 | 60 | 90;
 
@@ -244,6 +251,169 @@ export type Forecast = {
   horizons: Record<Horizon, number>;
   byParty: Map<string, Record<Horizon, number>>;
 };
+
+export type MlForecastMeta = {
+  method: "random_forest" | "heuristic";
+  samples: number;
+  features: readonly string[];
+  topFeaturesFor30: Array<{ name: string; weight: number }>;
+  trainedAt: Date | null;
+};
+
+/**
+ * ML-backed forecast — trains a firm-scoped random forest on the
+ * firm's own history and predicts per-bill probabilities. Falls
+ * back to the heuristic when there's not enough data.
+ *
+ * Returns the same shape as computeForecast() plus model metadata
+ * the UI uses to surface "trained on N samples · top 3 features"
+ * provenance.
+ */
+export async function computeForecastML(
+  firmId: string,
+  invoicesFromDb: Array<{
+    id: string;
+    partyId: string;
+    billDate: Date;
+    dueDate: Date | null;
+    originalAmount: number;
+    outstandingAmount: number;
+    ageBucket: string;
+    isDisputed: boolean;
+    origin: string;
+  }>,
+  promisesByParty: Map<
+    string,
+    { amount: number; promisedBy: Date; keepRate: number }
+  >,
+): Promise<{ forecast: Forecast; meta: MlForecastMeta }> {
+  const model = await getFirmModel(firmId);
+
+  // Cold-start / insufficient data → use heuristic path
+  if (!model) {
+    const baseRates = await calibrateBaseRates(firmId);
+    const velocity = await debtorVelocityMultipliers(firmId);
+    const heuristic = computeForecast({
+      invoices: invoicesFromDb.map((i) => ({
+        id: i.id,
+        partyId: i.partyId,
+        outstandingAmount: i.outstandingAmount,
+        ageBucket: i.ageBucket,
+      })),
+      promisesByParty,
+      baseRates,
+      velocityMultipliers: velocity,
+    });
+    return {
+      forecast: heuristic,
+      meta: {
+        method: "heuristic",
+        samples: 0,
+        features: [],
+        topFeaturesFor30: [],
+        trainedAt: null,
+      },
+    };
+  }
+
+  // Extract features per open invoice, predict with the RF model.
+  const now = new Date();
+  const featRows = invoicesFromDb.map((inv) =>
+    extractFeatures({
+      billDate: inv.billDate,
+      dueDate: inv.dueDate,
+      evaluationDate: now,
+      originalAmount: inv.outstandingAmount,
+      debtorMedianDays:
+        model.debtorMedianDays.get(inv.partyId) ?? model.firmMedianDays,
+      debtorSampleSize: model.debtorSampleSize.get(inv.partyId) ?? 0,
+      hasOpenPromise: promisesByParty.has(inv.partyId),
+      isDisputed: inv.isDisputed,
+      isCredfloatOrigin: inv.origin === "CREDFLOAT",
+    }),
+  );
+
+  const probs = predictWithModel(model, featRows);
+
+  const horizons: Record<Horizon, number> = {
+    7: 0,
+    14: 0,
+    30: 0,
+    60: 0,
+    90: 0,
+  };
+  const byParty = new Map<string, Record<Horizon, number>>();
+
+  for (let i = 0; i < invoicesFromDb.length; i++) {
+    const inv = invoicesFromDb[i];
+    const promise = promisesByParty.get(inv.partyId);
+    const rowTotals: Record<Horizon, number> = {
+      7: 0, 14: 0, 30: 0, 60: 0, 90: 0,
+    };
+    for (const h of [7, 14, 30, 60, 90] as const) {
+      const horizonMs = h * 86400_000;
+      const p = Math.min(1, Math.max(0, probs[h][i] ?? 0));
+      let expected = inv.outstandingAmount * p;
+      // Promise override — if a promise exists in window, blend
+      // keep-rate into the expected amount.
+      if (
+        promise &&
+        promise.promisedBy.getTime() - now.getTime() <= horizonMs
+      ) {
+        const covered = Math.min(inv.outstandingAmount, promise.amount);
+        const rest = inv.outstandingAmount - covered;
+        const weighted =
+          covered * Math.max(0.5, Math.min(1, promise.keepRate)) +
+          rest * p;
+        expected = Math.max(expected, weighted);
+      }
+      horizons[h] += expected;
+      rowTotals[h] = expected;
+    }
+    byParty.set(inv.partyId, {
+      7: (byParty.get(inv.partyId)?.[7] ?? 0) + rowTotals[7],
+      14: (byParty.get(inv.partyId)?.[14] ?? 0) + rowTotals[14],
+      30: (byParty.get(inv.partyId)?.[30] ?? 0) + rowTotals[30],
+      60: (byParty.get(inv.partyId)?.[60] ?? 0) + rowTotals[60],
+      90: (byParty.get(inv.partyId)?.[90] ?? 0) + rowTotals[90],
+    });
+  }
+
+  for (const h of [7, 14, 30, 60, 90] as const) {
+    horizons[h] = Math.round(horizons[h]);
+  }
+  for (const [k, v] of byParty) {
+    byParty.set(k, {
+      7: Math.round(v[7]),
+      14: Math.round(v[14]),
+      30: Math.round(v[30]),
+      60: Math.round(v[60]),
+      90: Math.round(v[90]),
+    });
+  }
+
+  // Top features for the 30-day horizon — surfaced in the UI as
+  // the "why these numbers" explainer.
+  const imp30 = model.featureImportance[30] ?? [];
+  const topFeaturesFor30 = imp30
+    .map((w: number, idx: number) => ({
+      name: FEATURE_NAMES[idx] ?? `f${idx}`,
+      weight: w,
+    }))
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, 4);
+
+  return {
+    forecast: { horizons, byParty },
+    meta: {
+      method: "random_forest",
+      samples: model.samples,
+      features: FEATURE_NAMES,
+      topFeaturesFor30,
+      trainedAt: model.trainedAt,
+    },
+  };
+}
 
 export type BacktestResult = {
   samples: number;
