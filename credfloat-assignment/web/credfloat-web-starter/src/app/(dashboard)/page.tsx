@@ -16,6 +16,7 @@ import {
   calibrateBaseRates,
   computeForecast,
   debtorVelocityMultipliers,
+  backtestForecast,
 } from "@/lib/forecast";
 
 export const dynamic = "force-dynamic";
@@ -328,6 +329,48 @@ export default async function OverviewPage() {
     velocityMultipliers: velocity,
   });
 
+  // Backtest — last 3 complete months, predicted vs actual.
+  // Guarded: if the DB is too empty we fall back to zero — the UI
+  // handles the missing-data case.
+  const backtest = await backtestForecast(firmId, 3).catch(() => null);
+
+  // Top contributing debtors for the 30-day horizon — actionable
+  // "chase these five and you probably get 60% of the expected
+  // inflow" list.
+  const topForecastByParty = [...forecast.byParty.entries()]
+    .map(([partyId, h]) => ({ partyId, amount: h[30] }))
+    .filter((x) => x.amount > 0)
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 5);
+  const topForecastPartyIds = topForecastByParty.map((x) => x.partyId);
+  const topForecastParties =
+    topForecastPartyIds.length === 0
+      ? []
+      : await prisma.party.findMany({
+          where: { id: { in: topForecastPartyIds } },
+          select: {
+            id: true,
+            tallyLedgerName: true,
+            mailingName: true,
+            clientCompanyId: true,
+            clientCompany: { select: { displayName: true } },
+          },
+        });
+  const topForecastRows = topForecastByParty
+    .map((x) => {
+      const p = topForecastParties.find((pp) => pp.id === x.partyId);
+      if (!p) return null;
+      return {
+        partyId: p.id,
+        name: p.mailingName || p.tallyLedgerName,
+        clientCompanyId: p.clientCompanyId,
+        clientCompanyName: p.clientCompany.displayName,
+        amount: x.amount,
+      };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
+  const topForecastSum = topForecastRows.reduce((s, r) => s + r.amount, 0);
+
   // Latest run per job — cronRuns is pre-sorted desc by startedAt so
   // first occurrence of each job name wins.
   const jobOrder: Array<{ id: string; label: string }> = [
@@ -470,43 +513,126 @@ export default async function OverviewPage() {
 
       {/* Cash inflow forecast */}
       <section className="card-apple overflow-hidden">
-        <div className="flex items-end justify-between gap-6 px-10 pt-9 pb-6">
+        <div className="flex flex-col gap-6 px-10 pt-9 pb-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3">
-              Cash inflow forecast
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3">
+                Cash inflow forecast
+              </p>
+              {backtest && backtest.samples >= 2 && backtest.actualThisPeriod > 0 && (
+                <span
+                  className="rounded-full border px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wider"
+                  style={{
+                    borderColor:
+                      backtest.accuracyPct >= 85
+                        ? "rgba(48,209,88,0.30)"
+                        : backtest.accuracyPct >= 70
+                          ? "rgba(0,113,227,0.30)"
+                          : "rgba(245,158,11,0.30)",
+                    background:
+                      backtest.accuracyPct >= 85
+                        ? "rgba(48,209,88,0.10)"
+                        : backtest.accuracyPct >= 70
+                          ? "rgba(0,113,227,0.08)"
+                          : "rgba(245,158,11,0.10)",
+                    color:
+                      backtest.accuracyPct >= 85
+                        ? "#1f7a4a"
+                        : backtest.accuracyPct >= 70
+                          ? "#0057b7"
+                          : "#92400e",
+                  }}
+                  title={`Backtested on ${backtest.samples} complete month${backtest.samples === 1 ? "" : "s"}: predicted ${formatINRCompact(backtest.predictedThisPeriod)} vs actual ${formatINRCompact(backtest.actualThisPeriod)}.`}
+                >
+                  {backtest.accuracyPct.toFixed(0)}% accurate
+                </span>
+              )}
+            </div>
             <h2 className="mt-2 text-[26px] font-semibold tracking-tight text-ink">
-              Expected receipts over the next 30, 60, and 90 days
+              Predicted receipts over the next 7 to 90 days
             </h2>
             <p className="mt-1.5 max-w-2xl text-[15px] leading-relaxed text-ink-3">
-              ML-calibrated from the firm&apos;s own receipt-vs-bill timing
-              history. Each open bill&apos;s expected payment probability is
-              weighted by the debtor&apos;s historical velocity and any
-              open promise-to-pay.
+              Calibrated on this firm&apos;s actual receipt-vs-bill
+              timing history. Each open bill&apos;s expected payment
+              probability is weighted by the debtor&apos;s historical
+              payment velocity and any open promise-to-pay. The
+              accuracy badge reflects how close predictions were to
+              actuals over the last {backtest?.samples ?? 3} complete
+              month{(backtest?.samples ?? 3) === 1 ? "" : "s"}.
             </p>
           </div>
         </div>
-        <div className="grid grid-cols-1 gap-0 border-t border-subtle sm:grid-cols-3">
-          {([30, 60, 90] as const).map((h, i) => (
+        <div className="grid grid-cols-2 gap-0 border-t border-subtle sm:grid-cols-4">
+          {([7, 14, 30, 60] as const).map((h, i) => (
             <div
               key={h}
-              className={`px-10 py-8 ${i > 0 ? "border-t sm:border-l sm:border-t-0 border-subtle" : ""}`}
+              className={`px-6 py-6 ${
+                i > 0
+                  ? "border-t sm:border-l sm:border-t-0 border-subtle"
+                  : ""
+              } ${i >= 2 ? "border-t sm:border-t-0" : ""}`}
             >
               <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3">
                 Next {h} days
               </div>
-              <div className="tabular mt-3 text-[34px] font-semibold leading-none tracking-tight text-ink">
-                <span className="mr-1 text-[22px] font-light text-ink-3">₹</span>
+              <div className="tabular mt-3 text-[28px] font-semibold leading-none tracking-tight text-ink">
+                <span className="mr-1 text-[18px] font-light text-ink-3">₹</span>
                 {formatINRCompact(forecast.horizons[h]).replace("₹", "")}
               </div>
-              <div className="mt-2 text-[12.5px] text-ink-3">
+              <div className="mt-2 text-[11.5px] text-ink-3">
                 {totalOutstanding > 0
-                  ? `${((forecast.horizons[h] / totalOutstanding) * 100).toFixed(0)}% of book expected to land`
+                  ? `${((forecast.horizons[h] / totalOutstanding) * 100).toFixed(0)}% of book`
                   : "No open book"}
               </div>
             </div>
           ))}
         </div>
+
+        {/* Top contributing debtors — actionable "chase these 5
+            and you probably get most of the expected inflow" list */}
+        {topForecastRows.length > 0 && (
+          <div className="border-t border-subtle px-10 py-6">
+            <div className="flex items-end justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3">
+                  Where the 30-day cash is coming from
+                </p>
+                <p className="mt-1 text-[13px] text-ink-3">
+                  Top {topForecastRows.length} debtors expected to
+                  contribute{" "}
+                  <span className="font-semibold text-ink-2">
+                    {formatINR(topForecastSum)}
+                  </span>
+                  {" "}
+                  ({forecast.horizons[30] > 0
+                    ? `${((topForecastSum / forecast.horizons[30]) * 100).toFixed(0)}% of the 30-day forecast`
+                    : "of the 30-day forecast"}).
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 divide-y divide-subtle rounded-xl border border-subtle">
+              {topForecastRows.map((r) => (
+                <Link
+                  key={r.partyId}
+                  href={`/clients/${r.clientCompanyId}`}
+                  className="flex items-center justify-between gap-4 px-4 py-3 transition-colors hover:bg-[var(--color-surface-2)]"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-[14px] font-medium text-ink">
+                      {r.name}
+                    </div>
+                    <div className="text-[11.5px] text-ink-3">
+                      {r.clientCompanyName}
+                    </div>
+                  </div>
+                  <div className="tabular shrink-0 text-[14px] font-semibold text-ink">
+                    {formatINR(r.amount)}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Ageing distribution */}
