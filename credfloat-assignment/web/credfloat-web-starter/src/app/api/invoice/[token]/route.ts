@@ -4,19 +4,24 @@ import { verifyInvoiceToken } from "@/lib/invoice-token";
 import { formatINR } from "@/lib/currency";
 import { buildUpiQr } from "@/lib/upi-qr";
 import { formatInTimeZone } from "date-fns-tz";
+import { renderTaxInvoicePdf, panFromGstin } from "@/lib/tax-invoice-pdf";
 
 export const runtime = "nodejs";
 
 /**
- * Signed public PDF for a single invoice. Mirrors the ledger PDF
- * route but only shows ONE bill + payment instructions.
+ * Signed public PDF for a single invoice.
  *
- * PDF rendering uses @react-pdf/renderer via a deferred dynamic
- * import (same pattern as ledger-pdf.tsx) so it never gets bundled
- * with the Next.js edge build.
+ * Two layouts, selected by Invoice.origin:
+ *   - CREDFLOAT  → full Tally-style Tax Invoice (formal GST doc
+ *                  with consignee/buyer blocks, HSN summary, tax
+ *                  bifurcation, amount-in-words, PAN, declaration,
+ *                  signatory). For bills created inside Ledger
+ *                  where the debtor wants a proper GST document.
+ *   - TALLY      → soft payment-reminder layout with UPI QR + bank
+ *                  block. For nudging debtors; not a tax document.
  */
 export async function GET(
-  req: NextRequest,
+  _req: NextRequest,
   { params }: { params: Promise<{ token: string }> },
 ) {
   const { token } = await params;
@@ -33,12 +38,107 @@ export async function GET(
     include: {
       party: true,
       clientCompany: { include: { firm: true } },
+      lineItems: { orderBy: { position: "asc" } },
     },
   });
   if (!invoice || invoice.deletedAt) {
     return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
   }
 
+  const partyName = invoice.party.mailingName || invoice.party.tallyLedgerName;
+  const safe = partyName.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 40);
+  const refSafe = invoice.billRef.replace(/[^A-Za-z0-9_-]+/g, "_");
+
+  // ────────────────────────────────────────────────────────────────
+  // CREDFLOAT origin → formal Tax Invoice PDF
+  // ────────────────────────────────────────────────────────────────
+  if (invoice.origin === "CREDFLOAT") {
+    const sup = invoice.clientCompany;
+    const cons = {
+      name: partyName,
+      address: invoice.party.address,
+      stateName: invoice.party.stateName,
+      gstin: invoice.recipientGstin ?? invoice.party.gstin ?? null,
+    };
+    const buyer = invoice.consigneeName
+      ? {
+          name: invoice.consigneeName,
+          address: invoice.consigneeAddress,
+          stateName: invoice.party.stateName,
+          gstin: invoice.recipientGstin ?? invoice.party.gstin ?? null,
+        }
+      : cons;
+
+    try {
+      const pdf = await renderTaxInvoicePdf({
+        supplier: {
+          displayName: sup.displayName,
+          addressLine1: sup.addressLine1,
+          addressLine2: sup.addressLine2,
+          city: sup.city,
+          stateName: sup.stateName,
+          pincode: sup.pincode,
+          gstin: invoice.supplierGstin ?? sup.gstin,
+          pan: invoice.supplierPan ?? panFromGstin(invoice.supplierGstin ?? sup.gstin),
+        },
+        consignee: cons,
+        buyer,
+        invoice: {
+          billRef: invoice.billRef,
+          billDate: invoice.billDate,
+          deliveryNote: invoice.deliveryNote,
+          modeOfPayment: invoice.modeOfPayment,
+          buyerOrderRef: invoice.buyerOrderRef,
+          buyerOrderDate: invoice.buyerOrderDate,
+          dispatchDocNo: invoice.dispatchDocNo,
+          dispatchThrough: invoice.dispatchThrough,
+          destination: invoice.destination,
+          termsOfDelivery: invoice.termsOfDelivery,
+        },
+        items: invoice.lineItems.map((li) => ({
+          description: li.description,
+          hsnSac: li.hsnSac,
+          unit: li.unit,
+          quantity: Number(li.quantity),
+          rate: Number(li.rate),
+          amount: Number(li.taxableAmount),
+          gstRate: Number(li.gstRate),
+        })),
+        totals: {
+          taxableTotal: Number(invoice.taxableAmount ?? 0),
+          cgstTotal: Number(invoice.cgstAmount ?? 0),
+          sgstTotal: Number(invoice.sgstAmount ?? 0),
+          igstTotal: Number(invoice.igstAmount ?? 0),
+          grandTotal: Number(invoice.originalAmount),
+          isIntraState:
+            Number(invoice.cgstAmount ?? 0) + Number(invoice.sgstAmount ?? 0) >
+            0,
+        },
+        signatoryLabel: `for ${sup.displayName}`,
+      });
+
+      const filename = `tax_invoice_${refSafe}_${safe}.pdf`;
+      return new NextResponse(pdf as unknown as BodyInit, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `inline; filename="${filename}"`,
+          "Cache-Control": "private, no-store",
+        },
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[TAX_INVOICE_PDF_ERROR]", invoice.id, msg);
+      return NextResponse.json(
+        { error: "Failed to render tax invoice PDF", detail: msg },
+        { status: 500 },
+      );
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // TALLY origin → soft payment-reminder PDF (unchanged)
+  // ────────────────────────────────────────────────────────────────
   let qrDataUrl: string | null = null;
   const firm = invoice.clientCompany.firm;
   if (firm.upiId) {
@@ -55,8 +155,6 @@ export async function GET(
     }
   }
 
-  // Dynamic imports — see ledger-pdf.tsx for why these use
-  // webpackIgnore (bundler would produce two React copies otherwise).
   const reactMod = await import(/* webpackIgnore: true */ "react");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const React: any =
@@ -106,7 +204,6 @@ export async function GET(
     },
   });
 
-  const partyName = invoice.party.mailingName || invoice.party.tallyLedgerName;
   const dueDate = invoice.dueDate
     ? formatInTimeZone(invoice.dueDate, "Asia/Kolkata", "dd MMM yyyy")
     : "—";
@@ -251,9 +348,7 @@ export async function GET(
     );
   }
 
-  const safe = partyName.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 40);
-  const filename = `invoice_${invoice.billRef.replace(/[^A-Za-z0-9_-]+/g, "_")}_${safe}.pdf`;
-
+  const filename = `invoice_${refSafe}_${safe}.pdf`;
   return new NextResponse(pdf as unknown as BodyInit, {
     status: 200,
     headers: {

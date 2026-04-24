@@ -12,6 +12,7 @@ import { computeTotals } from "@/lib/gst";
 const lineItemSchema = z.object({
   description: z.string().min(1).max(300),
   hsnSac: z.string().max(20).optional().nullable(),
+  unit: z.string().max(20).optional().nullable(),
   quantity: z.number().positive(),
   rate: z.number().nonnegative(),
   gstRate: z.number().min(0).max(100),
@@ -27,6 +28,18 @@ const schema = z.object({
   recipientGstin: z.string().max(15).optional().nullable(),
   placeOfSupply: z.string().max(60).optional().nullable(),
   notes: z.string().max(1000).optional().nullable(),
+  // Tally-style Tax Invoice extras (all optional)
+  supplierPan: z.string().max(10).optional().nullable(),
+  consigneeName: z.string().max(200).optional().nullable(),
+  consigneeAddress: z.string().max(500).optional().nullable(),
+  deliveryNote: z.string().max(100).optional().nullable(),
+  modeOfPayment: z.string().max(100).optional().nullable(),
+  buyerOrderRef: z.string().max(100).optional().nullable(),
+  buyerOrderDate: z.string().optional().nullable(),
+  dispatchDocNo: z.string().max(100).optional().nullable(),
+  dispatchThrough: z.string().max(100).optional().nullable(),
+  destination: z.string().max(100).optional().nullable(),
+  termsOfDelivery: z.string().max(300).optional().nullable(),
   items: z.array(lineItemSchema).min(1).max(50),
 });
 
@@ -107,6 +120,10 @@ export async function createInvoice(
     parsed.data.placeOfSupply ?? supplierState,
   );
 
+  const buyerOrderDate = parsed.data.buyerOrderDate
+    ? new Date(parsed.data.buyerOrderDate)
+    : null;
+
   const invoice = await prisma.$transaction(async (tx) => {
     const inv = await tx.invoice.create({
       data: {
@@ -128,6 +145,17 @@ export async function createInvoice(
         sgstAmount: new Prisma.Decimal(totals.sgstTotal),
         igstAmount: new Prisma.Decimal(totals.igstTotal),
         notes: parsed.data.notes || null,
+        supplierPan: parsed.data.supplierPan || null,
+        consigneeName: parsed.data.consigneeName || null,
+        consigneeAddress: parsed.data.consigneeAddress || null,
+        deliveryNote: parsed.data.deliveryNote || null,
+        modeOfPayment: parsed.data.modeOfPayment || null,
+        buyerOrderRef: parsed.data.buyerOrderRef || null,
+        buyerOrderDate,
+        dispatchDocNo: parsed.data.dispatchDocNo || null,
+        dispatchThrough: parsed.data.dispatchThrough || null,
+        destination: parsed.data.destination || null,
+        termsOfDelivery: parsed.data.termsOfDelivery || null,
         lastSyncedAt: new Date(),
       },
       select: { id: true },
@@ -140,6 +168,7 @@ export async function createInvoice(
           invoiceId: inv.id,
           description: item.description,
           hsnSac: item.hsnSac ?? null,
+          unit: (item as { unit?: string | null }).unit ?? null,
           quantity: new Prisma.Decimal(item.quantity),
           rate: new Prisma.Decimal(item.rate),
           gstRate: new Prisma.Decimal(item.gstRate),

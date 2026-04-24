@@ -25,6 +25,7 @@ type Template = {
 type LineItem = {
   description: string;
   hsnSac: string;
+  unit: string;
   quantity: number;
   rate: number;
   gstRate: number;
@@ -71,8 +72,21 @@ export function NewInvoiceButton({
     clientPlaceOfSupply ?? "",
   );
   const [notes, setNotes] = useState<string>("");
+  // Tally-style Tax Invoice extras (all optional)
+  const [supplierPan, setSupplierPan] = useState<string>("");
+  const [consigneeName, setConsigneeName] = useState<string>("");
+  const [consigneeAddress, setConsigneeAddress] = useState<string>("");
+  const [deliveryNote, setDeliveryNote] = useState<string>("");
+  const [modeOfPayment, setModeOfPayment] = useState<string>("");
+  const [buyerOrderRef, setBuyerOrderRef] = useState<string>("");
+  const [buyerOrderDate, setBuyerOrderDate] = useState<string>("");
+  const [dispatchDocNo, setDispatchDocNo] = useState<string>("");
+  const [dispatchThrough, setDispatchThrough] = useState<string>("");
+  const [destination, setDestination] = useState<string>("");
+  const [termsOfDelivery, setTermsOfDelivery] = useState<string>("");
+  const [extrasOpen, setExtrasOpen] = useState(false);
   const [items, setItems] = useState<LineItem[]>([
-    { description: "", hsnSac: "", quantity: 1, rate: 0, gstRate: 18 },
+    { description: "", hsnSac: "", unit: "Nos", quantity: 1, rate: 0, gstRate: 18 },
   ]);
 
   const selectedParty = useMemo(
@@ -103,7 +117,7 @@ export function NewInvoiceButton({
   const addItem = () =>
     setItems((s) => [
       ...s,
-      { description: "", hsnSac: "", quantity: 1, rate: 0, gstRate: 18 },
+      { description: "", hsnSac: "", unit: "Nos", quantity: 1, rate: 0, gstRate: 18 },
     ]);
   const removeItem = (i: number) =>
     setItems((s) => s.filter((_, idx) => idx !== i));
@@ -115,6 +129,7 @@ export function NewInvoiceButton({
       {
         description: t.description,
         hsnSac: t.hsnSac ?? "",
+        unit: "Nos",
         quantity: 1,
         rate: t.rate,
         gstRate: t.gstRate,
@@ -155,13 +170,24 @@ export function NewInvoiceButton({
         recipientGstin: recipientGstin || null,
         placeOfSupply: placeOfSupply || null,
         notes: notes || null,
+        supplierPan: supplierPan || null,
+        consigneeName: consigneeName || null,
+        consigneeAddress: consigneeAddress || null,
+        deliveryNote: deliveryNote || null,
+        modeOfPayment: modeOfPayment || null,
+        buyerOrderRef: buyerOrderRef || null,
+        buyerOrderDate: buyerOrderDate || null,
+        dispatchDocNo: dispatchDocNo || null,
+        dispatchThrough: dispatchThrough || null,
+        destination: destination || null,
+        termsOfDelivery: termsOfDelivery || null,
         items: validItems,
       });
       if (!r.ok) {
         toast.error(r.error);
         return;
       }
-      toast.success("Invoice created");
+      toast.success("Tax invoice created");
       // Reset + close
       setOpen(false);
       setPartyId("");
@@ -169,7 +195,19 @@ export function NewInvoiceButton({
       setDueDate("");
       setRecipientGstin("");
       setNotes("");
-      setItems([{ description: "", hsnSac: "", quantity: 1, rate: 0, gstRate: 18 }]);
+      setSupplierPan("");
+      setConsigneeName("");
+      setConsigneeAddress("");
+      setDeliveryNote("");
+      setModeOfPayment("");
+      setBuyerOrderRef("");
+      setBuyerOrderDate("");
+      setDispatchDocNo("");
+      setDispatchThrough("");
+      setDestination("");
+      setTermsOfDelivery("");
+      setExtrasOpen(false);
+      setItems([{ description: "", hsnSac: "", unit: "Nos", quantity: 1, rate: 0, gstRate: 18 }]);
     });
   };
 
@@ -181,7 +219,7 @@ export function NewInvoiceButton({
         className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-3)] px-3 py-1.5 text-[12.5px] font-medium text-ink-2 transition-all hover:border-[var(--color-border-hair)] hover:text-ink"
       >
         <Receipt className="h-3.5 w-3.5" />
-        New invoice
+        Create Tax Invoice
       </button>
 
       {open && (
@@ -196,11 +234,13 @@ export function NewInvoiceButton({
             <div className="flex items-start justify-between border-b border-subtle px-6 py-5">
               <div>
                 <h3 className="text-[18px] font-semibold tracking-tight text-ink">
-                  New invoice
+                  Create Tax Invoice
                 </h3>
                 <p className="mt-0.5 text-[13px] text-ink-3">
-                  Generate a GST-compliant invoice from DPS Ledger.
-                  Lives alongside Tally-synced bills with a "Ledger" tag.
+                  Full Tally-style GST Tax Invoice with HSN, CGST/SGST
+                  bifurcation, amount in words, PAN, declaration &
+                  signatory block. The shared PDF is a formal tax
+                  document debtors can enter into their own books.
                 </p>
               </div>
               <button
@@ -334,6 +374,7 @@ export function NewInvoiceButton({
                       <tr>
                         <th className="px-2 py-2 text-left font-medium">Description</th>
                         <th className="px-2 py-2 text-left font-medium">HSN/SAC</th>
+                        <th className="px-2 py-2 text-left font-medium">Unit</th>
                         <th className="px-2 py-2 text-right font-medium">Qty</th>
                         <th className="px-2 py-2 text-right font-medium">Rate</th>
                         <th className="px-2 py-2 text-right font-medium">GST %</th>
@@ -364,6 +405,16 @@ export function NewInvoiceButton({
                                   updateItem(i, { hsnSac: e.target.value })
                                 }
                                 placeholder="HSN"
+                                className={rowInput}
+                              />
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <input
+                                value={it.unit}
+                                onChange={(e) =>
+                                  updateItem(i, { unit: e.target.value })
+                                }
+                                placeholder="Nos"
                                 className={rowInput}
                               />
                             </td>
@@ -433,6 +484,130 @@ export function NewInvoiceButton({
               </div>
 
               {/* Notes */}
+              {/* Delivery + reference details — optional Tally-style
+                  fields for the Tax Invoice PDF. Collapsed by default
+                  so simple invoices stay fast to fill. */}
+              <div className="rounded-xl border border-subtle">
+                <button
+                  type="button"
+                  onClick={() => setExtrasOpen((v) => !v)}
+                  className="flex w-full items-center justify-between px-4 py-3 text-left text-[13px] font-medium text-ink-2 hover:bg-[var(--color-surface-2)]"
+                >
+                  <span>
+                    Delivery & reference details
+                    <span className="ml-2 text-[11.5px] font-normal text-ink-3">
+                      (optional — populates the Tally Tax Invoice fields)
+                    </span>
+                  </span>
+                  <span className="text-ink-3">{extrasOpen ? "−" : "+"}</span>
+                </button>
+                {extrasOpen && (
+                  <div className="space-y-4 border-t border-subtle p-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                      <Field label="Supplier PAN">
+                        <input
+                          value={supplierPan}
+                          onChange={(e) =>
+                            setSupplierPan(e.target.value.toUpperCase())
+                          }
+                          placeholder="auto-derived from GSTIN if blank"
+                          className={textInput}
+                          maxLength={10}
+                        />
+                      </Field>
+                      <Field label="Mode / terms of payment">
+                        <input
+                          value={modeOfPayment}
+                          onChange={(e) => setModeOfPayment(e.target.value)}
+                          placeholder="e.g. Net 30, Advance, etc."
+                          className={textInput}
+                        />
+                      </Field>
+                      <Field label="Delivery note">
+                        <input
+                          value={deliveryNote}
+                          onChange={(e) => setDeliveryNote(e.target.value)}
+                          placeholder="Delivery note ref"
+                          className={textInput}
+                        />
+                      </Field>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                      <Field label="Buyer's order ref">
+                        <input
+                          value={buyerOrderRef}
+                          onChange={(e) => setBuyerOrderRef(e.target.value)}
+                          placeholder="PO number"
+                          className={textInput}
+                        />
+                      </Field>
+                      <Field label="Buyer's order date">
+                        <input
+                          type="date"
+                          value={buyerOrderDate}
+                          onChange={(e) => setBuyerOrderDate(e.target.value)}
+                          className={textInput}
+                        />
+                      </Field>
+                      <Field label="Dispatch doc no.">
+                        <input
+                          value={dispatchDocNo}
+                          onChange={(e) => setDispatchDocNo(e.target.value)}
+                          placeholder="LR / GR no."
+                          className={textInput}
+                        />
+                      </Field>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                      <Field label="Dispatched through">
+                        <input
+                          value={dispatchThrough}
+                          onChange={(e) => setDispatchThrough(e.target.value)}
+                          placeholder="Courier / transporter"
+                          className={textInput}
+                        />
+                      </Field>
+                      <Field label="Destination">
+                        <input
+                          value={destination}
+                          onChange={(e) => setDestination(e.target.value)}
+                          placeholder="Ship-to city"
+                          className={textInput}
+                        />
+                      </Field>
+                      <Field label="Terms of delivery">
+                        <input
+                          value={termsOfDelivery}
+                          onChange={(e) => setTermsOfDelivery(e.target.value)}
+                          placeholder="FOB, CIF, etc."
+                          className={textInput}
+                        />
+                      </Field>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <Field label="Consignee (ship to) name — if different from buyer">
+                        <input
+                          value={consigneeName}
+                          onChange={(e) => setConsigneeName(e.target.value)}
+                          placeholder="Leave blank to reuse buyer"
+                          className={textInput}
+                        />
+                      </Field>
+                      <Field label="Consignee address">
+                        <input
+                          value={consigneeAddress}
+                          onChange={(e) =>
+                            setConsigneeAddress(e.target.value)
+                          }
+                          placeholder="Ship-to address"
+                          className={textInput}
+                        />
+                      </Field>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <Field label="Notes (optional)">
                 <textarea
                   value={notes}

@@ -222,6 +222,21 @@ model Invoice {
   igstAmount        Decimal?       @db.Decimal(15, 2)
   notes             String?
 
+  // Tally-style Tax Invoice extras — all optional, shown on the PDF
+  // if set. Let staff cover logistics/reference fields that don't
+  // live in the main billing-basics section.
+  supplierPan       String?
+  consigneeName     String?
+  consigneeAddress  String?
+  deliveryNote      String?
+  modeOfPayment     String?
+  buyerOrderRef     String?
+  buyerOrderDate    DateTime?
+  dispatchDocNo     String?
+  dispatchThrough   String?
+  destination       String?
+  termsOfDelivery   String?
+
   remindersSent     ReminderSent[]
   allocations       ReceiptAllocation[]
   callLogs          CallLog[]
@@ -262,6 +277,7 @@ model InvoiceLineItem {
 
   description     String
   hsnSac          String?
+  unit            String?  // "Nos", "SET", "Kgs", etc.
   quantity        Decimal  @db.Decimal(12, 2) @default(1)
   rate            Decimal  @db.Decimal(15, 2) // per-unit excluding tax
   gstRate         Decimal  @db.Decimal(5, 2)  @default(18) // percent
