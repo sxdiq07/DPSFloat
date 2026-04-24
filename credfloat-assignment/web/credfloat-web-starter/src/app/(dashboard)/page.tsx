@@ -591,24 +591,15 @@ export default async function OverviewPage() {
               Predicted receipts over the next 7 to 90 days
             </h2>
             <p className="mt-1.5 max-w-2xl text-[15px] leading-relaxed text-ink-3">
-              {forecastMeta.method === "random_forest" ? (
-                <>
-                  Random-forest classifier trained nightly on this
-                  firm&apos;s own bill-to-receipt history ({forecastMeta.samples.toLocaleString("en-IN")} historical pairs).
-                  Each open bill gets a per-horizon probability based on
-                  ageing, amount, debtor payment velocity, dispute state,
-                  and open promise-to-pay. Accuracy badge is measured on
-                  the last {backtest?.samples ?? 3} complete month
-                  {(backtest?.samples ?? 3) === 1 ? "" : "s"}.
-                </>
-              ) : (
-                <>
-                  Calibrated on this firm&apos;s receipt-vs-bill timing
-                  history. Once at least 30 paid bills accumulate, the
-                  system automatically upgrades to a random-forest model
-                  trained on those pairs.
-                </>
-              )}
+              Horizon amounts are calibrated from this firm&apos;s own
+              bill-to-receipt timing history ({forecastMeta.samples.toLocaleString("en-IN")} paid pairs)
+              via age-bucket base rates and per-debtor payment velocity.
+              The debtor-wise drill-down layers on each debtor&apos;s
+              empirical days-to-pay (median + P25/P75 range) so the
+              &ldquo;Safe terms&rdquo; column reflects how they actually
+              pay, not a generic rule. Accuracy badge is measured on the
+              last {backtest?.samples ?? 3} complete month
+              {(backtest?.samples ?? 3) === 1 ? "" : "s"}.
             </p>
           </div>
         </div>
@@ -656,9 +647,9 @@ export default async function OverviewPage() {
           <div className="border-t border-subtle bg-[var(--color-surface-2)] px-10 py-4">
             <div className="flex flex-wrap items-center gap-x-8 gap-y-2 text-[11.5px] text-ink-3">
               <span>
-                Models:{" "}
+                Method:{" "}
                 <span className="font-semibold text-ink-2">
-                  Random Forest Classifier (per-horizon) + Regressor (days-to-pay) · 80 trees each
+                  Age-bucket base rates × debtor velocity + empirical days-to-pay (P25/P50/P75)
                 </span>
               </span>
               <span>

@@ -94,7 +94,13 @@ export type MlModelBundle = {
    */
   debtorMedianDays: Map<string, number>;
   debtorSampleSize: Map<string, number>;
+  /** Per-debtor empirical P25/P75 of historical days-to-pay. */
+  debtorP25Days: Map<string, number>;
+  debtorP75Days: Map<string, number>;
   firmMedianDays: number;
+  /** Firm-wide empirical P25/P75 — fallback when a debtor is new. */
+  firmP25Days: number;
+  firmP75Days: number;
   /**
    * Days-to-pay regressor — trained alongside the classifiers
    * on the same feature matrix but with daysToPay as the
@@ -118,6 +124,19 @@ function median(vals: number[]): number {
   const s = [...vals].sort((a, b) => a - b);
   const mid = Math.floor(s.length / 2);
   return s.length % 2 === 0 ? (s[mid - 1] + s[mid]) / 2 : s[mid];
+}
+
+/** Percentile via linear interpolation. `q` in [0, 1]. */
+function percentile(vals: number[], q: number): number {
+  if (vals.length === 0) return 0;
+  const s = [...vals].sort((a, b) => a - b);
+  if (s.length === 1) return s[0];
+  const idx = q * (s.length - 1);
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return s[lo];
+  const frac = idx - lo;
+  return s[lo] * (1 - frac) + s[hi] * frac;
 }
 
 function ageBucketFromDays(daysPastDue: number): string {
@@ -221,14 +240,20 @@ export async function trainFirmModel(
   }
 
   const debtorMedianDays = new Map<string, number>();
+  const debtorP25Days = new Map<string, number>();
+  const debtorP75Days = new Map<string, number>();
   const debtorSampleSize = new Map<string, number>();
   for (const [partyId, days] of debtorDays.entries()) {
     debtorMedianDays.set(partyId, median(days));
+    debtorP25Days.set(partyId, percentile(days, 0.25));
+    debtorP75Days.set(partyId, percentile(days, 0.75));
     debtorSampleSize.set(partyId, days.length);
   }
   const allDays: number[] = [];
   for (const ds of debtorDays.values()) allDays.push(...ds);
   const firmMedianDays = median(allDays);
+  const firmP25Days = percentile(allDays, 0.25);
+  const firmP75Days = percentile(allDays, 0.75);
 
   // Build training rows — one per distinct invoice.
   const seen = new Set<string>();
@@ -356,8 +381,12 @@ export async function trainFirmModel(
     trainedAt: new Date(),
     featureImportance: importance as MlModelBundle["featureImportance"],
     debtorMedianDays,
+    debtorP25Days,
+    debtorP75Days,
     debtorSampleSize,
     firmMedianDays,
+    firmP25Days,
+    firmP75Days,
     daysToPay,
   };
 }

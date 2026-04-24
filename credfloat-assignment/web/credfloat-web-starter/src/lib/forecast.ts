@@ -16,14 +16,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import {
-  getFirmModel,
-  predictWithModel,
-  predictDaysToPayPerBill,
-  extractFeatures,
-  FEATURE_NAMES,
-  type MlModelBundle,
-} from "@/lib/forecast-ml";
+import { getFirmModel, FEATURE_NAMES } from "@/lib/forecast-ml";
 
 export type Horizon = 7 | 14 | 30 | 60 | 90;
 
@@ -344,33 +337,41 @@ export async function computeForecastML(
 ): Promise<{ forecast: Forecast; meta: MlForecastMeta }> {
   const model = await getFirmModel(firmId);
 
-  // Cold-start / insufficient data → use heuristic path
+  // Horizon amounts always come from the age-bucket-calibrated
+  // heuristic. A per-bill classifier trained on bill-date snapshots
+  // can't predict aged bills well (training/inference skew), and the
+  // heuristic's bucket-conditional base rates are specifically
+  // designed for open aged receivables — that's the whole point of
+  // ageing analysis.
+  const baseRates = await calibrateBaseRates(firmId);
+  const velocity = await debtorVelocityMultipliers(firmId);
+  const heuristic = computeForecast({
+    invoices: invoicesFromDb.map((i) => ({
+      id: i.id,
+      partyId: i.partyId,
+      outstandingAmount: i.outstandingAmount,
+      ageBucket: i.ageBucket,
+    })),
+    promisesByParty,
+    baseRates,
+    velocityMultipliers: velocity,
+  });
+
+  // Outstanding per debtor — drives the "₹X open" subtitle and
+  // the Safe-terms row inclusion even when predicted inflow is ₹0.
+  const outstandingByParty = new Map<string, number>();
+  for (const inv of invoicesFromDb) {
+    outstandingByParty.set(
+      inv.partyId,
+      (outstandingByParty.get(inv.partyId) ?? 0) + inv.outstandingAmount,
+    );
+  }
+
+  // Cold-start — no model yet, derive days-to-pay from velocity
+  // multiplier alone. Confidence stays "low".
   if (!model) {
-    const baseRates = await calibrateBaseRates(firmId);
-    const velocity = await debtorVelocityMultipliers(firmId);
-    const heuristic = computeForecast({
-      invoices: invoicesFromDb.map((i) => ({
-        id: i.id,
-        partyId: i.partyId,
-        outstandingAmount: i.outstandingAmount,
-        ageBucket: i.ageBucket,
-      })),
-      promisesByParty,
-      baseRates,
-      velocityMultipliers: velocity,
-    });
-    // No trained regressor — derive a crude days-to-pay estimate from
-    // the velocity multiplier we already have (multiplier > 1 means
-    // faster than firm median).
-    const firmMedian = 30; // safe default before we have any history
+    const firmMedian = 30;
     const daysToPayByParty = new Map<string, DaysToPayRow>();
-    const outstandingByParty = new Map<string, number>();
-    for (const inv of invoicesFromDb) {
-      outstandingByParty.set(
-        inv.partyId,
-        (outstandingByParty.get(inv.partyId) ?? 0) + inv.outstandingAmount,
-      );
-    }
     for (const [partyId, outstanding] of outstandingByParty) {
       const mult = velocity.get(partyId) ?? 1;
       const days = Math.max(1, Math.round(firmMedian / Math.max(0.5, mult)));
@@ -400,110 +401,52 @@ export async function computeForecastML(
     };
   }
 
-  // Extract features per open invoice, predict with the RF model.
-  const now = new Date();
-  const featRows = invoicesFromDb.map((inv) =>
-    extractFeatures({
-      billDate: inv.billDate,
-      dueDate: inv.dueDate,
-      evaluationDate: now,
-      originalAmount: inv.outstandingAmount,
-      debtorMedianDays:
-        model.debtorMedianDays.get(inv.partyId) ?? model.firmMedianDays,
-      debtorSampleSize: model.debtorSampleSize.get(inv.partyId) ?? 0,
-      hasOpenPromise: promisesByParty.has(inv.partyId),
-      isDisputed: inv.isDisputed,
-      isCredfloatOrigin: inv.origin === "CREDFLOAT",
-    }),
-  );
-
-  const probs = predictWithModel(model, featRows);
-  const dtp = predictDaysToPayPerBill(model, featRows);
-
-  const horizons: Record<Horizon, number> = {
-    7: 0,
-    14: 0,
-    30: 0,
-    60: 0,
-    90: 0,
-  };
-  const byParty = new Map<string, Record<Horizon, number>>();
-
-  // Per-debtor accumulator for days-to-pay — we aggregate by taking
-  // the outstanding-weighted average across their open bills so
-  // larger bills dominate the estimate (what partners actually care
-  // about: "when will the BIG one land").
-  const dtpAccum = new Map<
-    string,
-    { wSum: number; wSumLow: number; wSumHigh: number; weight: number; outstanding: number }
-  >();
-
-  for (let i = 0; i < invoicesFromDb.length; i++) {
-    const inv = invoicesFromDb[i];
-    const promise = promisesByParty.get(inv.partyId);
-    const rowTotals: Record<Horizon, number> = {
-      7: 0, 14: 0, 30: 0, 60: 0, 90: 0,
-    };
-    for (const h of [7, 14, 30, 60, 90] as const) {
-      const horizonMs = h * 86400_000;
-      const p = Math.min(1, Math.max(0, probs[h][i] ?? 0));
-      let expected = inv.outstandingAmount * p;
-      // Promise override — if a promise exists in window, blend
-      // keep-rate into the expected amount.
-      if (
-        promise &&
-        promise.promisedBy.getTime() - now.getTime() <= horizonMs
-      ) {
-        const covered = Math.min(inv.outstandingAmount, promise.amount);
-        const rest = inv.outstandingAmount - covered;
-        const weighted =
-          covered * Math.max(0.5, Math.min(1, promise.keepRate)) +
-          rest * p;
-        expected = Math.max(expected, weighted);
-      }
-      horizons[h] += expected;
-      rowTotals[h] = expected;
+  // Days-to-pay uses EMPIRICAL per-debtor history (medians + IQR).
+  // This is what experienced CA firms already trust by hand —
+  // "Lal Ji Store pays in ~20 days, Dubai Mela takes 60+." The
+  // regressor was too noisy at this dataset size, so we skip it
+  // and use raw historical percentiles from the model bundle.
+  //
+  // Confidence still scales with sampleSize so low-history debtors
+  // are correctly flagged "new debtor" in the UI.
+  const daysToPayByParty = new Map<string, DaysToPayRow>();
+  for (const [partyId, outstanding] of outstandingByParty) {
+    const n = model.debtorSampleSize.get(partyId) ?? 0;
+    let p50: number;
+    let p25: number;
+    let p75: number;
+    if (n >= 3) {
+      p50 = model.debtorMedianDays.get(partyId) ?? model.firmMedianDays;
+      p25 = model.debtorP25Days.get(partyId) ?? model.firmP25Days;
+      p75 = model.debtorP75Days.get(partyId) ?? model.firmP75Days;
+    } else {
+      // Not enough history on this debtor — fall back to firm-wide
+      // percentiles so the row still shows something trustable.
+      p50 = model.firmMedianDays;
+      p25 = model.firmP25Days;
+      p75 = model.firmP75Days;
     }
-    byParty.set(inv.partyId, {
-      7: (byParty.get(inv.partyId)?.[7] ?? 0) + rowTotals[7],
-      14: (byParty.get(inv.partyId)?.[14] ?? 0) + rowTotals[14],
-      30: (byParty.get(inv.partyId)?.[30] ?? 0) + rowTotals[30],
-      60: (byParty.get(inv.partyId)?.[60] ?? 0) + rowTotals[60],
-      90: (byParty.get(inv.partyId)?.[90] ?? 0) + rowTotals[90],
-    });
-
-    // Accumulate days-to-pay weighted by outstanding amount.
-    const w = Math.max(0, inv.outstandingAmount);
-    const slot = dtpAccum.get(inv.partyId) ?? {
-      wSum: 0,
-      wSumLow: 0,
-      wSumHigh: 0,
-      weight: 0,
-      outstanding: 0,
-    };
-    slot.wSum += (dtp.p50[i] ?? 0) * w;
-    slot.wSumLow += (dtp.p25[i] ?? 0) * w;
-    slot.wSumHigh += (dtp.p75[i] ?? 0) * w;
-    slot.weight += w;
-    slot.outstanding += w;
-    dtpAccum.set(inv.partyId, slot);
-  }
-
-  for (const h of [7, 14, 30, 60, 90] as const) {
-    horizons[h] = Math.round(horizons[h]);
-  }
-  for (const [k, v] of byParty) {
-    byParty.set(k, {
-      7: Math.round(v[7]),
-      14: Math.round(v[14]),
-      30: Math.round(v[30]),
-      60: Math.round(v[60]),
-      90: Math.round(v[90]),
+    const days = Math.max(0, Math.round(p50));
+    const lowDays = Math.max(0, Math.round(p25));
+    const highDays = Math.max(days, Math.round(p75));
+    const confidence: DaysToPayRow["confidence"] =
+      n >= 10 ? "high" : n >= 3 ? "medium" : "low";
+    const rec = recommendCreditTerm(highDays, n);
+    daysToPayByParty.set(partyId, {
+      days,
+      lowDays,
+      highDays,
+      sampleSize: n,
+      confidence,
+      outstandingAmount: outstanding,
+      recommendedTermDays: rec.days,
+      termCaveat: rec.caveat,
     });
   }
 
   // Top features for the 30-day horizon — surfaced in the UI as
-  // the "why these numbers" explainer.
+  // the "why these numbers" explainer. Still computed from the
+  // trained classifier so the provenance footer has a story.
   const imp30 = model.featureImportance[30] ?? [];
   const topFeaturesFor30 = imp30
     .map((w: number, idx: number) => ({
@@ -513,33 +456,10 @@ export async function computeForecastML(
     .sort((a, b) => b.weight - a.weight)
     .slice(0, 4);
 
-  // Finalize per-debtor days-to-pay. Confidence tier is based on how
-  // many historical paid bills the debtor has — more history, tighter
-  // trust in the number.
-  const daysToPayByParty = new Map<string, DaysToPayRow>();
-  for (const [partyId, slot] of dtpAccum) {
-    if (slot.weight <= 0) continue;
-    const days = Math.max(0, Math.round(slot.wSum / slot.weight));
-    const lowDays = Math.max(0, Math.round(slot.wSumLow / slot.weight));
-    const highDays = Math.max(days, Math.round(slot.wSumHigh / slot.weight));
-    const sampleSize = model.debtorSampleSize.get(partyId) ?? 0;
-    const confidence: DaysToPayRow["confidence"] =
-      sampleSize >= 10 ? "high" : sampleSize >= 3 ? "medium" : "low";
-    const rec = recommendCreditTerm(highDays, sampleSize);
-    daysToPayByParty.set(partyId, {
-      days,
-      lowDays,
-      highDays,
-      sampleSize,
-      confidence,
-      outstandingAmount: Math.round(slot.outstanding),
-      recommendedTermDays: rec.days,
-      termCaveat: rec.caveat,
-    });
-  }
+  heuristic.daysToPayByParty = daysToPayByParty;
 
   return {
-    forecast: { horizons, byParty, daysToPayByParty },
+    forecast: heuristic,
     meta: {
       method: "random_forest",
       samples: model.samples,
