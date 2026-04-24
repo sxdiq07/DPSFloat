@@ -350,14 +350,23 @@ export default async function OverviewPage() {
   // handles the missing-data case.
   const backtest = await backtestForecast(firmId, 3).catch(() => null);
 
-  // Debtor-wise drill-down — EVERY debtor contributing to the 30-day
-  // forecast, plus their ML-predicted days-to-pay. The UI handles
-  // ranking, filtering, and top-10-vs-full toggle.
-  const drillPartyIds = [...forecast.byParty.keys()].filter((pid) => {
-    const amts = forecast.byParty.get(pid);
-    if (!amts) return false;
-    return amts[7] > 0 || amts[14] > 0 || amts[30] > 0 || amts[60] > 0;
-  });
+  // Debtor-wise drill-down — union of debtors with any positive
+  // horizon amount OR any days-to-pay prediction. Even if the ML
+  // says ₹0 inflow in the short horizons, the "Safe terms"
+  // recommendation is still useful, so we surface them.
+  const drillPartyIdSet = new Set<string>();
+  for (const [pid, amts] of forecast.byParty) {
+    if (amts[7] > 0 || amts[14] > 0 || amts[30] > 0 || amts[60] > 0) {
+      drillPartyIdSet.add(pid);
+    }
+  }
+  for (const pid of forecast.daysToPayByParty.keys()) {
+    drillPartyIdSet.add(pid);
+  }
+  const drillPartyIds = [...drillPartyIdSet];
+  console.log(
+    `[forecast] drill-down: byParty=${forecast.byParty.size} dtp=${forecast.daysToPayByParty.size} rows=${drillPartyIds.length} horizons=${JSON.stringify(forecast.horizons)}`,
+  );
   const drillParties =
     drillPartyIds.length === 0
       ? []
