@@ -240,50 +240,67 @@ export async function trainFirmModel(
 
   // First payment date per invoice (training label is the FIRST
   // receipt that touched the bill — represents when the clock stops).
+  //
+  // We distinguish true cash sales from credit-bills-paid-fast by
+  // looking at dueDate vs billDate:
+  //   - dueDate > billDate  → credit was offered, keep the sample
+  //     regardless of actual daysToPay (including 0-day).
+  //   - dueDate == billDate → same-day cash sale, record but flag
+  //     so we can exclude it from credit-cycle stats.
+  //
+  // This preserves the "customer paid faster than required" signal
+  // while still filtering Tally's cash-register-style same-day
+  // receipts that would otherwise collapse every median to 0.
   const firstPaidAt = new Map<string, Date>();
-  const debtorDays = new Map<string, number[]>();
+  const debtorDays = new Map<
+    string,
+    Array<{ days: number; hadCredit: boolean }>
+  >();
   for (const a of allocs) {
     const invId = a.invoice.id;
     const rDate = new Date(a.receipt.receiptDate);
     const bDate = new Date(a.invoice.billDate);
+    const dDate = a.invoice.dueDate ? new Date(a.invoice.dueDate) : bDate;
     const prev = firstPaidAt.get(invId);
     if (!prev || rDate < prev) firstPaidAt.set(invId, rDate);
     const daysToPay = Math.max(
       0,
       Math.floor((rDate.getTime() - bDate.getTime()) / 86400_000),
     );
+    const hadCredit =
+      Math.floor((dDate.getTime() - bDate.getTime()) / 86400_000) > 0;
     const arr = debtorDays.get(a.invoice.partyId) ?? [];
-    arr.push(daysToPay);
+    arr.push({ days: daysToPay, hadCredit });
     debtorDays.set(a.invoice.partyId, arr);
   }
 
-  // Exclude same-day payments (daysToPay === 0). In Tally data
-  // these usually mean cash sales or same-day settlement — the
-  // receipt was booked on the bill date, so there was never a
-  // credit cycle. Including them makes the median collapse to 0
-  // and the "safe terms" recommendation useless. For credit-cycle
-  // insight we only want bills that actually spent time unpaid.
+  // Per-debtor percentiles. We include every sample where credit
+  // terms were actually offered — even if the customer paid on
+  // day 0, that's a useful "pays very fast" signal. Pure cash
+  // sales (dueDate == billDate AND daysToPay == 0) are excluded
+  // so they don't collapse the median.
   const debtorMedianDays = new Map<string, number>();
   const debtorP25Days = new Map<string, number>();
   const debtorP75Days = new Map<string, number>();
   const debtorSampleSize = new Map<string, number>();
-  for (const [partyId, days] of debtorDays.entries()) {
-    const credit = days.filter((d) => d > 0);
-    // Sample size reflects CREDIT bills only — cash customers
-    // with 100% same-day payments register as "no credit history"
-    // so the UI correctly flags them "new debtor".
+  for (const [partyId, samples] of debtorDays.entries()) {
+    const credit = samples
+      .filter((s) => s.hadCredit || s.days > 0)
+      .map((s) => s.days);
     debtorSampleSize.set(partyId, credit.length);
     if (credit.length === 0) continue;
     debtorMedianDays.set(partyId, median(credit));
     debtorP25Days.set(partyId, percentile(credit, 0.25));
     debtorP75Days.set(partyId, percentile(credit, 0.75));
   }
-  const allDays: number[] = [];
-  for (const ds of debtorDays.values()) allDays.push(...ds);
-  const allCreditDays = allDays.filter((d) => d > 0);
-  // Firm-wide percentiles also on credit-only. If a firm has zero
-  // credit bills across its entire book (pure-cash business), fall
-  // back to industry-standard 30d so the UI doesn't show "0 days".
+  const allCreditDays: number[] = [];
+  for (const samples of debtorDays.values()) {
+    for (const s of samples) {
+      if (s.hadCredit || s.days > 0) allCreditDays.push(s.days);
+    }
+  }
+  // Firm-wide percentiles on credit-offered bills only. Industry
+  // default 30d if a firm has no credit-offered bills at all.
   const firmMedianDays =
     allCreditDays.length > 0 ? median(allCreditDays) : 30;
   const firmP25Days =
