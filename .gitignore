@@ -17,3 +17,7 @@ __pycache__/
 *.1800
 *.TSF
 Tally_Work/
+
+# Local tooling / agent scratch dirs
+.claude/
+_bmad/
