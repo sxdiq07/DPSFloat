@@ -18,6 +18,13 @@ __pycache__/
 *.TSF
 Tally_Work/
 
+# Tally connector debug/response dumps may contain raw party names,
+# GSTINs, addresses. Filenames themselves often leak client identity
+# (e.g. tally_receipts_debug_M-TRADING_CO_.xml). Block all XML in the
+# connector dir — TDL templates live as Python strings, not files.
+credfloat-assignment/connector/*.xml
+*_debug_*.xml
+
 # Local tooling / agent scratch dirs
 .claude/
 _bmad/

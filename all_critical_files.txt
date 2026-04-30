@@ -1,0 +1,1250 @@
+========== credfloat-assignment\web\credfloat-web-starter\package.json ==========
+{
+  "name": "credfloat-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio",
+    "db:seed": "tsx prisma/seed.ts",
+    "postinstall": "prisma generate"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "@radix-ui/react-slot": "^1.1.0",
+    "@tanstack/react-table": "^8.20.5",
+    "bcryptjs": "^2.4.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
+    "lucide-react": "^0.460.0",
+    "next": "15.0.3",
+    "next-auth": "5.0.0-beta.25",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.13.3",
+    "resend": "^4.0.1",
+    "sonner": "^1.7.0",
+    "tailwind-merge": "^2.5.5",
+    "tailwindcss-animate": "^1.0.7",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.9.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.14.0",
+    "eslint-config-next": "15.0.3",
+    "postcss": "^8.4.49",
+    "prisma": "^5.22.0",
+    "tailwindcss": "^3.4.15",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}
+
+
+========== credfloat-assignment\web\credfloat-web-starter\middleware.ts ==========
+import NextAuth from "next-auth";
+import { authConfig } from "@/lib/auth.config";
+
+export default NextAuth(authConfig).auth;
+
+export const config = {
+  matcher: [
+    // Match all request paths except for:
+    // - _next/static (static files)
+    // - _next/image (image optimization)
+    // - favicon.ico
+    // - Files with extensions (images, etc.)
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+  ],
+};
+
+
+========== credfloat-assignment\web\credfloat-web-starter\vercel.json ==========
+{
+  "crons": [
+    {
+      "path": "/api/cron/compute-ageing",
+      "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/cron/send-reminders",
+      "schedule": "30 4 * * *"
+    }
+  ]
+}
+
+
+========== credfloat-assignment\web\credfloat-web-starter\prisma\seed.ts ==========
+import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
+
+const prisma = new PrismaClient();
+
+async function main() {
+  const firmName = process.env.SEED_FIRM_NAME ?? "DPS & Co";
+  const email = process.env.SEED_DEMO_EMAIL ?? "demo@dpsandco.in";
+  const password = process.env.SEED_DEMO_PASSWORD ?? "dps2026";
+
+  // Create the firm (idempotent)
+  const firm = await prisma.firm.upsert({
+    where: { id: "seed-firm-dpsandco" },
+    create: { id: "seed-firm-dpsandco", name: firmName },
+    update: { name: firmName },
+  });
+
+  // Create the demo user
+  const passwordHash = await bcrypt.hash(password, 10);
+  await prisma.firmStaff.upsert({
+    where: { email },
+    create: {
+      email,
+      name: "Demo Partner",
+      passwordHash,
+      role: "PARTNER",
+      firmId: firm.id,
+    },
+    update: { passwordHash, firmId: firm.id },
+  });
+
+  console.log(`✓ Seeded firm: ${firm.name} (id: ${firm.id})`);
+  console.log(`✓ Seeded demo user: ${email} / ${password}`);
+}
+
+main()
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });
+
+
+========== credfloat-assignment\web\credfloat-web-starter\src\lib\auth.ts ==========
+import NextAuth from "next-auth";
+import Credentials from "next-auth/providers/credentials";
+import bcrypt from "bcryptjs";
+import { z } from "zod";
+import { prisma } from "@/lib/prisma";
+import { authConfig } from "@/lib/auth.config";
+
+const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+});
+
+export const { handlers, signIn, signOut, auth } = NextAuth({
+  ...authConfig,
+  providers: [
+    Credentials({
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
+      },
+      async authorize(credentials) {
+        const parsed = loginSchema.safeParse(credentials);
+        if (!parsed.success) return null;
+
+        const user = await prisma.firmStaff.findUnique({
+          where: { email: parsed.data.email },
+        });
+        if (!user) return null;
+
+        const ok = await bcrypt.compare(parsed.data.password, user.passwordHash);
+        if (!ok) return null;
+
+        return {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          firmId: user.firmId,
+          role: user.role,
+        };
+      },
+    }),
+  ],
+});
+
+
+========== credfloat-assignment\web\credfloat-web-starter\src\lib\auth.config.ts ==========
+import type { NextAuthConfig } from "next-auth";
+
+/**
+ * Edge-safe NextAuth config. Used by middleware where Prisma isn't available.
+ * The full config with the Credentials provider lives in auth.ts.
+ */
+export const authConfig = {
+  pages: { signIn: "/login" },
+  providers: [], // populated in auth.ts
+  session: { strategy: "jwt" },
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = user.id as string;
+        token.firmId = user.firmId;
+        token.role = user.role;
+      }
+      return token;
+    },
+    async session({ session, token }) {
+      if (session.user) {
+        session.user.id = token.id;
+        session.user.firmId = token.firmId;
+        session.user.role = token.role;
+      }
+      return session;
+    },
+    authorized({ auth, request: { nextUrl } }) {
+      const isLoggedIn = !!auth?.user;
+      const { pathname } = nextUrl;
+
+      // Public routes (API endpoints with their own auth)
+      if (
+        pathname.startsWith("/api/sync") ||
+        pathname.startsWith("/api/cron") ||
+        pathname.startsWith("/api/auth")
+      ) {
+        return true;
+      }
+
+      // Login page
+      if (pathname.startsWith("/login")) {
+        if (isLoggedIn) return Response.redirect(new URL("/", nextUrl));
+        return true;
+      }
+
+      // All other routes require auth
+      return isLoggedIn;
+    },
+  },
+} satisfies NextAuthConfig;
+
+
+========== credfloat-assignment\web\credfloat-web-starter\src\lib\ageing.ts ==========
+import { AgeBucket } from "@prisma/client";
+
+/**
+ * Compute the ageing bucket for an invoice given its due date.
+ * Pure function — easy to unit test.
+ *
+ * Uses calendar days between today and dueDate. Positive days = overdue.
+ */
+export function computeAgeBucket(dueDate: Date, today: Date = new Date()): AgeBucket {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const daysOverdue = Math.floor(
+    (today.getTime() - dueDate.getTime()) / msPerDay,
+  );
+
+  if (daysOverdue <= 0) return "CURRENT";
+  if (daysOverdue <= 30) return "DAYS_0_30";
+  if (daysOverdue <= 60) return "DAYS_30_60";
+  if (daysOverdue <= 90) return "DAYS_60_90";
+  return "DAYS_90_PLUS";
+}
+
+/**
+ * Days since due date. Negative = not yet due.
+ */
+export function daysOverdue(dueDate: Date, today: Date = new Date()): number {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.floor((today.getTime() - dueDate.getTime()) / msPerDay);
+}
+
+export const AGE_BUCKET_LABELS: Record<AgeBucket, string> = {
+  CURRENT: "Current",
+  DAYS_0_30: "0–30 days",
+  DAYS_30_60: "30–60 days",
+  DAYS_60_90: "60–90 days",
+  DAYS_90_PLUS: "90+ days",
+};
+
+export const AGE_BUCKET_COLORS: Record<AgeBucket, string> = {
+  CURRENT: "bg-emerald-100 text-emerald-900 border-emerald-200",
+  DAYS_0_30: "bg-sky-100 text-sky-900 border-sky-200",
+  DAYS_30_60: "bg-amber-100 text-amber-900 border-amber-200",
+  DAYS_60_90: "bg-orange-100 text-orange-900 border-orange-200",
+  DAYS_90_PLUS: "bg-red-100 text-red-900 border-red-200",
+};
+
+export const AGE_BUCKETS_ORDER: AgeBucket[] = [
+  "CURRENT",
+  "DAYS_0_30",
+  "DAYS_30_60",
+  "DAYS_60_90",
+  "DAYS_90_PLUS",
+];
+
+
+========== credfloat-assignment\web\credfloat-web-starter\src\lib\currency.ts ==========
+import { Prisma } from "@prisma/client";
+
+function toNumber(amount: number | bigint | Prisma.Decimal | string): number {
+  if (typeof amount === "number") return amount;
+  if (typeof amount === "bigint") return Number(amount);
+  if (typeof amount === "string") return parseFloat(amount);
+  return amount.toNumber();
+}
+
+/**
+ * Format a number as Indian Rupees, full format.
+ * e.g. 123456 -> ₹1,23,456
+ */
+export function formatINR(amount: number | bigint | Prisma.Decimal | string): string {
+  const n = toNumber(amount);
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(n);
+}
+
+/**
+ * Compact Indian currency format using lakh/crore.
+ * e.g. 1_50_000 -> ₹1.50L
+ * e.g. 3_45_00_000 -> ₹3.45Cr
+ * Used for KPI tiles where space is tight.
+ */
+export function formatINRCompact(amount: number | bigint | Prisma.Decimal | string): string {
+  const n = toNumber(amount);
+  const abs = Math.abs(n);
+  const sign = n < 0 ? "-" : "";
+
+  if (abs >= 1e7) return `${sign}₹${(abs / 1e7).toFixed(2)}Cr`;
+  if (abs >= 1e5) return `${sign}₹${(abs / 1e5).toFixed(2)}L`;
+  if (abs >= 1e3) return `${sign}₹${(abs / 1e3).toFixed(1)}K`;
+  return `${sign}₹${abs.toFixed(0)}`;
+}
+
+
+========== credfloat-assignment\web\credfloat-web-starter\src\lib\email.ts ==========
+import { Resend } from "resend";
+import { formatINR } from "@/lib/currency";
+import { formatInTimeZone } from "date-fns-tz";
+
+const resend = process.env.RESEND_API_KEY
+  ? new Resend(process.env.RESEND_API_KEY)
+  : null;
+
+export type ReminderTemplate = "gentle" | "followup" | "final";
+
+export interface ReminderVars {
+  partyName: string;
+  clientCompanyName: string;
+  billRef: string;
+  billDate: Date;
+  dueDate: Date;
+  amount: number;
+  daysOverdue: number;
+  contactEmail?: string;
+}
+
+/**
+ * Pick a template based on how overdue the invoice is.
+ */
+export function selectTemplate(daysOverdue: number): ReminderTemplate {
+  if (daysOverdue <= 0) return "gentle";
+  if (daysOverdue <= 45) return "followup";
+  return "final";
+}
+
+function fmtDate(d: Date): string {
+  return formatInTimeZone(d, "Asia/Kolkata", "dd MMM yyyy");
+}
+
+function renderTemplate(template: ReminderTemplate, v: ReminderVars) {
+  const amount = formatINR(v.amount);
+  const billDate = fmtDate(v.billDate);
+  const dueDate = fmtDate(v.dueDate);
+  const brand = "DPS & Co, Chartered Accountants";
+
+  switch (template) {
+    case "gentle":
+      return {
+        subject: `Payment reminder — Invoice ${v.billRef}`,
+        text:
+          `Dear ${v.partyName},\n\n` +
+          `This is a friendly reminder that invoice ${v.billRef} dated ${billDate} ` +
+          `for ${amount} is due on ${dueDate}.\n\n` +
+          `Kindly arrange for payment at your earliest convenience. ` +
+          `Payment instructions are available in the original invoice. ` +
+          `If you have already processed this payment, please ignore this message.\n\n` +
+          `Thank you for your continued business.\n\n` +
+          `Warm regards,\n${v.clientCompanyName}\n(Managed by ${brand})`,
+        html: htmlShell(
+          `Payment reminder — Invoice ${v.billRef}`,
+          `<p>Dear ${escape(v.partyName)},</p>` +
+            `<p>This is a friendly reminder that invoice <strong>${escape(v.billRef)}</strong> ` +
+            `dated ${billDate} for <strong>${amount}</strong> is due on <strong>${dueDate}</strong>.</p>` +
+            `<p>Kindly arrange for payment at your earliest convenience. Payment instructions ` +
+            `are available in the original invoice. If you have already processed this payment, ` +
+            `please ignore this message.</p>` +
+            `<p>Thank you for your continued business.</p>` +
+            `<p>Warm regards,<br/><strong>${escape(v.clientCompanyName)}</strong><br/>` +
+            `<em style="color:#666;font-size:0.9em">Managed by ${brand}</em></p>`,
+        ),
+      };
+
+    case "followup":
+      return {
+        subject: `Payment follow-up — Invoice ${v.billRef} (${amount} overdue)`,
+        text:
+          `Dear ${v.partyName},\n\n` +
+          `We note that invoice ${v.billRef} dated ${billDate} for ${amount} ` +
+          `was due on ${dueDate} and is currently ${v.daysOverdue} days overdue.\n\n` +
+          `We request you to settle this amount at the earliest. ` +
+          `If there is any dispute or clarification required, please respond to this email ` +
+          `so we can assist you promptly.\n\n` +
+          `Outstanding amount: ${amount}\n` +
+          `Invoice date: ${billDate}\n` +
+          `Due date: ${dueDate}\n` +
+          `Days overdue: ${v.daysOverdue}\n\n` +
+          `We look forward to your prompt settlement.\n\n` +
+          `Regards,\n${v.clientCompanyName}`,
+        html: htmlShell(
+          `Payment follow-up — Invoice ${v.billRef}`,
+          `<p>Dear ${escape(v.partyName)},</p>` +
+            `<p>We note that invoice <strong>${escape(v.billRef)}</strong> dated ${billDate} ` +
+            `for <strong>${amount}</strong> was due on ${dueDate} and is currently ` +
+            `<strong style="color:#b85c00">${v.daysOverdue} days overdue</strong>.</p>` +
+            `<p>We request you to settle this amount at the earliest. If there is any dispute ` +
+            `or clarification required, please respond to this email so we can assist you promptly.</p>` +
+            detailsBox([
+              ["Outstanding amount", amount],
+              ["Invoice date", billDate],
+              ["Due date", dueDate],
+              ["Days overdue", `${v.daysOverdue}`],
+            ]) +
+            `<p>We look forward to your prompt settlement.</p>` +
+            `<p>Regards,<br/><strong>${escape(v.clientCompanyName)}</strong></p>`,
+        ),
+      };
+
+    case "final":
+      return {
+        subject: `URGENT — Outstanding payment for Invoice ${v.billRef}`,
+        text:
+          `Dear ${v.partyName},\n\n` +
+          `This is a final reminder regarding invoice ${v.billRef} dated ${billDate} ` +
+          `for ${amount}, which has been outstanding for ${v.daysOverdue} days.\n\n` +
+          `Despite previous communications, we have not received payment or response. ` +
+          `We urge you to settle this invoice within 7 days of receiving this notice.\n\n` +
+          `Outstanding: ${amount}\n` +
+          `Days overdue: ${v.daysOverdue}\n\n` +
+          `If you have a genuine concern about this invoice, please contact us immediately ` +
+          `at ${v.contactEmail ?? "the above email address"}.\n\n` +
+          `Regards,\n${v.clientCompanyName}`,
+        html: htmlShell(
+          `URGENT — Outstanding payment for Invoice ${v.billRef}`,
+          `<p>Dear ${escape(v.partyName)},</p>` +
+            `<p>This is a <strong>final reminder</strong> regarding invoice ` +
+            `<strong>${escape(v.billRef)}</strong> dated ${billDate} for <strong>${amount}</strong>, ` +
+            `which has been outstanding for <strong style="color:#c01a1a">${v.daysOverdue} days</strong>.</p>` +
+            `<p>Despite previous communications, we have not received payment or response. ` +
+            `We urge you to settle this invoice within 7 days of receiving this notice.</p>` +
+            detailsBox([
+              ["Outstanding", amount],
+              ["Days overdue", `${v.daysOverdue}`],
+            ]) +
+            `<p>If you have a genuine concern about this invoice, please contact us immediately ` +
+            `${v.contactEmail ? `at <a href="mailto:${escape(v.contactEmail)}">${escape(v.contactEmail)}</a>` : ""}.</p>` +
+            `<p>Regards,<br/><strong>${escape(v.clientCompanyName)}</strong></p>`,
+        ),
+      };
+  }
+}
+
+function escape(s: string): string {
+  return s.replace(/[<>&"']/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&#39;" })[c] || c);
+}
+
+function detailsBox(rows: [string, string][]): string {
+  const rowsHtml = rows
+    .map(
+      ([k, val]) =>
+        `<tr><td style="padding:6px 12px 6px 0;color:#666">${escape(k)}</td>` +
+        `<td style="padding:6px 0;font-weight:500">${escape(val)}</td></tr>`,
+    )
+    .join("");
+  return `<table style="border:1px solid #e5e5e5;border-radius:6px;padding:8px 16px;margin:16px 0">${rowsHtml}</table>`;
+}
+
+function htmlShell(title: string, body: string): string {
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><title>${escape(title)}</title></head>
+<body style="font-family:-apple-system,'Segoe UI',sans-serif;max-width:600px;margin:20px auto;padding:20px;color:#333;line-height:1.5">
+${body}
+<hr style="margin-top:32px;border:none;border-top:1px solid #e5e5e5"/>
+<p style="font-size:11px;color:#999">If you believe you received this email in error, reply with STOP to opt out of future reminders.</p>
+</body></html>`;
+}
+
+/**
+ * Send a reminder email. Returns provider message ID on success.
+ * If RESEND_API_KEY is not configured, logs to console and returns a stub ID (useful for demos).
+ */
+export async function sendReminderEmail(args: {
+  to: string;
+  template: ReminderTemplate;
+  vars: ReminderVars;
+}): Promise<{ id: string; stubbed?: boolean }> {
+  const rendered = renderTemplate(args.template, args.vars);
+
+  if (!resend) {
+    console.log("[EMAIL STUB]", {
+      to: args.to,
+      subject: rendered.subject,
+      template: args.template,
+    });
+    return { id: `stub-${Date.now()}`, stubbed: true };
+  }
+
+  const { data, error } = await resend.emails.send({
+    from: process.env.RESEND_FROM ?? "onboarding@resend.dev",
+    to: args.to,
+    subject: rendered.subject,
+    text: rendered.text,
+    html: rendered.html,
+  });
+
+  if (error) throw new Error(`Resend error: ${error.message}`);
+  return { id: data?.id ?? "unknown" };
+}
+
+
+========== credfloat-assignment\web\credfloat-web-starter\src\lib\whatsapp.ts ==========
+import { formatINR } from "@/lib/currency";
+
+/**
+ * Meta WhatsApp Cloud API wrapper.
+ *
+ * For the demo, this uses Meta's free test number which can send to up to 5
+ * pre-verified recipient numbers. For production, switch to an Indian BSP
+ * (AiSensy, Interakt) that handles template approvals and opt-in flows.
+ *
+ * Template requirement: the template referenced by `templateName` must be
+ * pre-approved in Meta Business Manager. Here we assume a template named
+ * "payment_reminder" with three body variables: {{1}} = party name,
+ * {{2}} = bill ref, {{3}} = amount formatted.
+ */
+
+interface SendResult {
+  id: string;
+  stubbed?: boolean;
+}
+
+const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
+const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
+const enabled = Boolean(PHONE_NUMBER_ID && ACCESS_TOKEN);
+
+export async function sendWhatsAppReminder(args: {
+  to: string; // E.164 format, e.g. 919876543210
+  partyName: string;
+  billRef: string;
+  amount: number;
+  templateName?: string;
+  languageCode?: string;
+}): Promise<SendResult> {
+  const templateName = args.templateName ?? "payment_reminder";
+  const languageCode = args.languageCode ?? "en";
+
+  // Normalize phone number — strip spaces, dashes, +
+  const to = args.to.replace(/[\s\-+]/g, "");
+
+  if (!enabled) {
+    console.log("[WHATSAPP STUB]", {
+      to,
+      template: templateName,
+      partyName: args.partyName,
+      billRef: args.billRef,
+      amount: formatINR(args.amount),
+    });
+    return { id: `whatsapp-stub-${Date.now()}`, stubbed: true };
+  }
+
+  const url = `https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`;
+  const body = {
+    messaging_product: "whatsapp",
+    to,
+    type: "template",
+    template: {
+      name: templateName,
+      language: { code: languageCode },
+      components: [
+        {
+          type: "body",
+          parameters: [
+            { type: "text", text: args.partyName },
+            { type: "text", text: args.billRef },
+            { type: "text", text: formatINR(args.amount) },
+          ],
+        },
+      ],
+    },
+  };
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${ACCESS_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`WhatsApp send failed: ${res.status} ${errText}`);
+  }
+
+  const json = await res.json() as { messages?: Array<{ id: string }> };
+  const messageId = json.messages?.[0]?.id ?? "unknown";
+  return { id: messageId };
+}
+
+
+========== credfloat-assignment\web\credfloat-web-starter\src\lib\session.ts ==========
+import { redirect } from "next/navigation";
+import { auth } from "@/lib/auth";
+
+export async function requireAuth() {
+  const session = await auth();
+  if (!session?.user) redirect("/login");
+  return session;
+}
+
+export async function requireFirmId(): Promise<string> {
+  const session = await requireAuth();
+  if (!session.user.firmId) redirect("/login");
+  return session.user.firmId;
+}
+
+
+========== credfloat-assignment\web\credfloat-web-starter\src\lib\prisma.ts ==========
+import { PrismaClient } from "@prisma/client";
+
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined;
+};
+
+export const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({
+    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
+  });
+
+if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+
+
+========== credfloat-assignment\web\credfloat-web-starter\src\app\api\sync\route.ts ==========
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { prisma } from "@/lib/prisma";
+
+export const runtime = "nodejs";
+
+const partySchema = z.object({
+  company: z.string().min(1),
+  tally_ledger_name: z.string().min(1),
+  parent_group: z.string(),
+  closing_balance: z.number(),
+  mailing_name: z.string().nullable().optional(),
+  address: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+});
+
+const syncSchema = z.object({
+  synced_at: z.string(),
+  companies: z.array(z.object({ tally_name: z.string().min(1) })),
+  parties: z.array(partySchema),
+});
+
+export async function POST(req: NextRequest) {
+  // Bearer token auth
+  const authHeader = req.headers.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return NextResponse.json(
+      { error: "Missing or malformed Authorization header" },
+      { status: 401 },
+    );
+  }
+  const token = authHeader.slice(7);
+  if (!process.env.SYNC_API_KEY || token !== process.env.SYNC_API_KEY) {
+    return NextResponse.json({ error: "Invalid sync token" }, { status: 401 });
+  }
+
+  // Parse + validate body
+  let rawBody: unknown;
+  try {
+    rawBody = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const parsed = syncSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Invalid payload", details: parsed.error.issues },
+      { status: 400 },
+    );
+  }
+
+  const { synced_at, companies, parties } = parsed.data;
+  const syncedAt = new Date(synced_at);
+
+  // V1: single-firm deployment. Resolve DPS & Co from the seed.
+  const firm = await prisma.firm.findFirst({
+    where: { name: process.env.SEED_FIRM_NAME ?? "DPS & Co" },
+  });
+  if (!firm) {
+    return NextResponse.json(
+      { error: "Firm not found. Run `npm run db:seed` first." },
+      { status: 500 },
+    );
+  }
+
+  // Upsert companies
+  const companyNameToId = new Map<string, string>();
+  for (const c of companies) {
+    const company = await prisma.clientCompany.upsert({
+      where: {
+        firmId_tallyCompanyName: {
+          firmId: firm.id,
+          tallyCompanyName: c.tally_name,
+        },
+      },
+      create: {
+        firmId: firm.id,
+        tallyCompanyName: c.tally_name,
+        displayName: c.tally_name,
+      },
+      update: { updatedAt: new Date() },
+    });
+    companyNameToId.set(c.tally_name, company.id);
+  }
+
+  // Upsert parties
+  let partyCount = 0;
+  let skipped = 0;
+  for (const p of parties) {
+    const companyId = companyNameToId.get(p.company);
+    if (!companyId) {
+      skipped++;
+      continue;
+    }
+
+    await prisma.party.upsert({
+      where: {
+        clientCompanyId_tallyLedgerName: {
+          clientCompanyId: companyId,
+          tallyLedgerName: p.tally_ledger_name,
+        },
+      },
+      create: {
+        clientCompanyId: companyId,
+        tallyLedgerName: p.tally_ledger_name,
+        parentGroup: p.parent_group,
+        closingBalance: p.closing_balance,
+        mailingName: p.mailing_name ?? null,
+        address: p.address ?? null,
+        phone: p.phone ?? null,
+        email: p.email ?? null,
+        lastSyncedAt: syncedAt,
+      },
+      update: {
+        parentGroup: p.parent_group,
+        closingBalance: p.closing_balance,
+        mailingName: p.mailing_name ?? undefined,
+        address: p.address ?? undefined,
+        phone: p.phone ?? undefined,
+        email: p.email ?? undefined,
+        lastSyncedAt: syncedAt,
+      },
+    });
+    partyCount++;
+  }
+
+  return NextResponse.json({
+    synced: {
+      companies: companies.length,
+      parties: partyCount,
+      skipped,
+    },
+    timestamp: new Date().toISOString(),
+  });
+}
+
+
+========== credfloat-assignment\web\credfloat-web-starter\src\app\api\cron\compute-ageing\route.ts ==========
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { computeAgeBucket } from "@/lib/ageing";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+export async function GET(req: NextRequest) {
+  // Vercel Cron sends Authorization: Bearer <CRON_SECRET>
+  const authHeader = req.headers.get("authorization");
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const today = new Date();
+  // Load all OPEN invoices and recompute their age bucket.
+  // For 300 clients this is typically a few thousand rows — fine for V1.
+  // At scale, batch this with SQL CASE expressions.
+  const invoices = await prisma.invoice.findMany({
+    where: { status: "OPEN", dueDate: { not: null } },
+    select: { id: true, dueDate: true, ageBucket: true },
+  });
+
+  let updated = 0;
+  for (const inv of invoices) {
+    if (!inv.dueDate) continue;
+    const bucket = computeAgeBucket(inv.dueDate, today);
+    if (bucket !== inv.ageBucket) {
+      await prisma.invoice.update({
+        where: { id: inv.id },
+        data: { ageBucket: bucket },
+      });
+      updated++;
+    }
+  }
+
+  return NextResponse.json({
+    scanned: invoices.length,
+    updated,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+
+========== credfloat-assignment\web\credfloat-web-starter\src\app\api\cron\send-reminders\route.ts ==========
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { daysOverdue } from "@/lib/ageing";
+import { sendReminderEmail, selectTemplate } from "@/lib/email";
+import { sendWhatsAppReminder } from "@/lib/whatsapp";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+export async function GET(req: NextRequest) {
+  const authHeader = req.headers.get("authorization");
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const today = new Date();
+  const startOfToday = new Date(today);
+  startOfToday.setHours(0, 0, 0, 0);
+
+  let sent = 0;
+  let failed = 0;
+  const errors: string[] = [];
+
+  // Find all active reminder rules with enabled = true
+  const rules = await prisma.reminderRule.findMany({
+    where: {
+      enabled: true,
+      clientCompany: { status: "ACTIVE" },
+    },
+    include: {
+      clientCompany: true,
+    },
+  });
+
+  for (const rule of rules) {
+    // For each trigger day offset, check if any invoices match today
+    const triggerDays = rule.triggerDays;
+
+    // Find this client's OPEN invoices with a due date
+    const invoices = await prisma.invoice.findMany({
+      where: {
+        clientCompanyId: rule.clientCompanyId,
+        status: "OPEN",
+        dueDate: { not: null },
+        party: { optedOut: false },
+      },
+      include: { party: true },
+    });
+
+    for (const inv of invoices) {
+      if (!inv.dueDate) continue;
+      const overdue = daysOverdue(inv.dueDate, today);
+      // Only dispatch if today equals one of the trigger days
+      if (!triggerDays.includes(overdue)) continue;
+
+      // Build reminder variables
+      const vars = {
+        partyName: inv.party.mailingName || inv.party.tallyLedgerName,
+        clientCompanyName: rule.clientCompany.displayName,
+        billRef: inv.billRef,
+        billDate: inv.billDate,
+        dueDate: inv.dueDate,
+        amount: Number(inv.outstandingAmount),
+        daysOverdue: overdue,
+      };
+
+      // Dispatch on each enabled channel, skipping if already sent today
+      for (const channel of rule.channels) {
+        // Idempotency: skip if a reminder on this invoice+channel was sent today
+        const alreadySent = await prisma.reminderSent.findFirst({
+          where: {
+            invoiceId: inv.id,
+            channel,
+            sentAt: { gte: startOfToday },
+          },
+        });
+        if (alreadySent) continue;
+
+        try {
+          let providerId = "";
+          if (channel === "EMAIL" && inv.party.email) {
+            const r = await sendReminderEmail({
+              to: inv.party.email,
+              template: selectTemplate(overdue),
+              vars,
+            });
+            providerId = r.id;
+          } else if (channel === "WHATSAPP" && inv.party.whatsappNumber) {
+            const r = await sendWhatsAppReminder({
+              to: inv.party.whatsappNumber,
+              partyName: vars.partyName,
+              billRef: vars.billRef,
+              amount: vars.amount,
+            });
+            providerId = r.id;
+          } else if (channel === "SMS") {
+            // SMS deferred until DLT templates are approved. Stub for now.
+            console.log("[SMS STUB]", inv.party.phone, vars);
+            providerId = `sms-stub-${Date.now()}`;
+          } else {
+            // Missing contact info; skip silently
+            continue;
+          }
+
+          await prisma.reminderSent.create({
+            data: {
+              partyId: inv.partyId,
+              invoiceId: inv.id,
+              channel,
+              providerId,
+              status: "SENT",
+            },
+          });
+          sent++;
+        } catch (err) {
+          failed++;
+          const msg = err instanceof Error ? err.message : String(err);
+          errors.push(`${channel}/${inv.billRef}: ${msg}`);
+          await prisma.reminderSent.create({
+            data: {
+              partyId: inv.partyId,
+              invoiceId: inv.id,
+              channel,
+              status: "FAILED",
+              error: msg.slice(0, 500),
+            },
+          });
+        }
+      }
+    }
+  }
+
+  return NextResponse.json({
+    sent,
+    failed,
+    errors: errors.slice(0, 20),
+    timestamp: new Date().toISOString(),
+  });
+}
+
+
+========== credfloat-assignment\web\credfloat-web-starter\src\app\(auth)\login\actions.ts ==========
+"use server";
+
+import { signIn } from "@/lib/auth";
+import { AuthError } from "next-auth";
+
+export async function loginAction(
+  _prevState: { error?: string } | undefined,
+  formData: FormData,
+): Promise<{ error?: string }> {
+  try {
+    await signIn("credentials", {
+      email: formData.get("email"),
+      password: formData.get("password"),
+      redirectTo: "/",
+    });
+    return {};
+  } catch (error) {
+    if (error instanceof AuthError) {
+      if (error.type === "CredentialsSignin") {
+        return { error: "Invalid email or password" };
+      }
+      return { error: "Authentication failed. Please try again." };
+    }
+    // Re-throw redirect errors (Next.js uses these internally)
+    throw error;
+  }
+}
+
+
+========== credfloat-assignment\web\credfloat-web-starter\src\app\(dashboard)\page.tsx ==========
+import { prisma } from "@/lib/prisma";
+import { requireFirmId } from "@/lib/session";
+import { formatINR, formatINRCompact } from "@/lib/currency";
+import { AGE_BUCKET_LABELS, AGE_BUCKETS_ORDER } from "@/lib/ageing";
+import { IndianRupee, AlertTriangle, TrendingDown, Send } from "lucide-react";
+
+export const dynamic = "force-dynamic";
+
+export default async function OverviewPage() {
+  const firmId = await requireFirmId();
+
+  // Aggregate queries (all scoped to this firm)
+  const [totalOutstandingAgg, overdue90Agg, collectionsAgg, remindersToday, ageingBuckets, topClients] =
+    await Promise.all([
+      prisma.invoice.aggregate({
+        where: { clientCompany: { firmId }, status: "OPEN" },
+        _sum: { outstandingAmount: true },
+      }),
+      prisma.invoice.aggregate({
+        where: { clientCompany: { firmId }, status: "OPEN", ageBucket: "DAYS_90_PLUS" },
+        _sum: { outstandingAmount: true },
+      }),
+      (async () => {
+        const start = new Date();
+        start.setDate(1);
+        start.setHours(0, 0, 0, 0);
+        return prisma.receipt.aggregate({
+          where: { clientCompany: { firmId }, receiptDate: { gte: start } },
+          _sum: { amount: true },
+        });
+      })(),
+      (async () => {
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        return prisma.reminderSent.count({
+          where: {
+            sentAt: { gte: startOfToday },
+            party: { clientCompany: { firmId } },
+          },
+        });
+      })(),
+      prisma.invoice.groupBy({
+        by: ["ageBucket"],
+        where: { clientCompany: { firmId }, status: "OPEN" },
+        _sum: { outstandingAmount: true },
+      }),
+      prisma.clientCompany.findMany({
+        where: { firmId },
+        take: 10,
+        include: {
+          invoices: {
+            where: { status: "OPEN" },
+            select: { outstandingAmount: true, ageBucket: true },
+          },
+          parties: { select: { id: true } },
+        },
+      }),
+    ]);
+
+  const totalOutstanding = Number(totalOutstandingAgg._sum.outstandingAmount ?? 0);
+  const overdue90 = Number(overdue90Agg._sum.outstandingAmount ?? 0);
+  const collectionsThisMonth = Number(collectionsAgg._sum.amount ?? 0);
+
+  // Build ageing data
+  const ageingData = AGE_BUCKETS_ORDER.map((bucket) => {
+    const found = ageingBuckets.find((b) => b.ageBucket === bucket);
+    return {
+      bucket,
+      label: AGE_BUCKET_LABELS[bucket],
+      amount: Number(found?._sum.outstandingAmount ?? 0),
+    };
+  });
+  const maxAgeing = Math.max(1, ...ageingData.map((d) => d.amount));
+
+  // Top clients by total outstanding
+  const topClientsRanked = topClients
+    .map((c) => {
+      const outstanding = c.invoices.reduce(
+        (sum, i) => sum + Number(i.outstandingAmount),
+        0,
+      );
+      const overdue = c.invoices
+        .filter((i) => i.ageBucket === "DAYS_60_90" || i.ageBucket === "DAYS_90_PLUS")
+        .reduce((sum, i) => sum + Number(i.outstandingAmount), 0);
+      return {
+        id: c.id,
+        name: c.displayName,
+        outstanding,
+        overdue,
+        debtorCount: c.parties.length,
+      };
+    })
+    .sort((a, b) => b.outstanding - a.outstanding)
+    .slice(0, 10);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
+        <p className="text-sm text-muted-foreground">
+          Receivables across all managed client companies
+        </p>
+      </div>
+
+      {/* KPI cards */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Kpi
+          label="Total receivables"
+          value={formatINRCompact(totalOutstanding)}
+          sub={formatINR(totalOutstanding)}
+          icon={<IndianRupee className="h-4 w-4" />}
+        />
+        <Kpi
+          label="Overdue 90+ days"
+          value={formatINRCompact(overdue90)}
+          sub={formatINR(overdue90)}
+          icon={<AlertTriangle className="h-4 w-4 text-red-600" />}
+          tone="danger"
+        />
+        <Kpi
+          label="Collections this month"
+          value={formatINRCompact(collectionsThisMonth)}
+          sub={formatINR(collectionsThisMonth)}
+          icon={<TrendingDown className="h-4 w-4 text-emerald-600" />}
+        />
+        <Kpi
+          label="Reminders sent today"
+          value={`${remindersToday}`}
+          sub="Across all channels"
+          icon={<Send className="h-4 w-4" />}
+        />
+      </div>
+
+      {/* Ageing distribution — simple inline bars */}
+      <section className="rounded-lg border bg-card p-6">
+        <h2 className="mb-4 text-lg font-semibold">Ageing distribution</h2>
+        <div className="space-y-3">
+          {ageingData.map((d) => (
+            <div key={d.bucket}>
+              <div className="mb-1 flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">{d.label}</span>
+                <span className="font-medium">{formatINR(d.amount)}</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full bg-primary transition-all"
+                  style={{ width: `${(d.amount / maxAgeing) * 100}%` }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Top clients */}
+      <section className="rounded-lg border bg-card">
+        <div className="border-b px-6 py-4">
+          <h2 className="text-lg font-semibold">Top clients by outstanding</h2>
+        </div>
+        {topClientsRanked.length === 0 ? (
+          <EmptyState />
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="px-6 py-3 text-left font-medium">Client</th>
+                <th className="px-6 py-3 text-right font-medium">Outstanding</th>
+                <th className="px-6 py-3 text-right font-medium">Overdue 60+</th>
+                <th className="px-6 py-3 text-right font-medium">Debtors</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {topClientsRanked.map((c) => (
+                <tr key={c.id} className="hover:bg-muted/30">
+                  <td className="px-6 py-3">
+                    <a
+                      className="font-medium hover:underline"
+                      href={`/clients/${c.id}`}
+                    >
+                      {c.name}
+                    </a>
+                  </td>
+                  <td className="px-6 py-3 text-right tabular-nums">
+                    {formatINR(c.outstanding)}
+                  </td>
+                  <td className="px-6 py-3 text-right tabular-nums text-red-700">
+                    {c.overdue > 0 ? formatINR(c.overdue) : "—"}
+                  </td>
+                  <td className="px-6 py-3 text-right tabular-nums">
+                    {c.debtorCount}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function Kpi({
+  label,
+  value,
+  sub,
+  icon,
+  tone,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  icon: React.ReactNode;
+  tone?: "danger";
+}) {
+  return (
+    <div className="rounded-lg border bg-card p-5">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-xs uppercase tracking-wide text-muted-foreground">
+          {label}
+        </span>
+        {icon}
+      </div>
+      <div
+        className={`text-2xl font-semibold tabular-nums ${tone === "danger" ? "text-red-700" : ""}`}
+      >
+        {value}
+      </div>
+      <div className="mt-1 text-xs text-muted-foreground">{sub}</div>
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="px-6 py-16 text-center text-sm text-muted-foreground">
+      No client data yet. Run the Tally connector to sync data.
+    </div>
+  );
+}
+
+

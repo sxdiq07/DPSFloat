@@ -2,6 +2,7 @@
 
 import { signIn } from "@/lib/auth";
 import { AuthError } from "next-auth";
+import { redirect } from "next/navigation";
 
 export async function loginAction(
   _prevState: { error?: string } | undefined,
@@ -11,9 +12,8 @@ export async function loginAction(
     await signIn("credentials", {
       email: formData.get("email"),
       password: formData.get("password"),
-      redirectTo: "/",
+      redirect: false,
     });
-    return {};
   } catch (error) {
     if (error instanceof AuthError) {
       if (error.type === "CredentialsSignin") {
@@ -21,7 +21,7 @@ export async function loginAction(
       }
       return { error: "Authentication failed. Please try again." };
     }
-    // Re-throw redirect errors (Next.js uses these internally)
     throw error;
   }
+  redirect("/");
 }

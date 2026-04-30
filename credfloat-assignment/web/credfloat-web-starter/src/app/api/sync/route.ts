@@ -6,6 +6,10 @@ import { prisma } from "@/lib/prisma";
 import { allocateForParty } from "@/lib/allocation";
 
 export const runtime = "nodejs";
+// Tally syncs with 500+ parties + bills + day-book entries can run >10s.
+// Vercel's default cap is 10s on Hobby; 60s is the Pro ceiling. Adjust
+// downwards if you're on Hobby and accept that very large firms may timeout.
+export const maxDuration = 60;
 
 const partySchema = z.object({
   company: z.string().min(1),
