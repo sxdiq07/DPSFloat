@@ -8,11 +8,10 @@ from PyInstaller.utils.hooks import collect_submodules
 block_cipher = None
 
 hiddenimports = (
-    collect_submodules("pyodbc")
-    + collect_submodules("pystray")
+    collect_submodules("pystray")
     + collect_submodules("PIL")
     + [
-        "tally_connector",
+        "tally_parties",
         "tally_invoices",
         "tally_receipts",
         "tally_daybook",

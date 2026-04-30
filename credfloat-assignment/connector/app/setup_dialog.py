@@ -48,22 +48,16 @@ def open_setup(initial: ConnectorConfig | None = None) -> bool:
         row=2, column=1, sticky="we", pady=4
     )
 
-    ttk.Label(frame, text="Tally DSN").grid(row=3, column=0, sticky="w")
-    tally_dsn = tk.StringVar(value=cfg.tally_dsn)
-    ttk.Entry(frame, textvariable=tally_dsn, width=50).grid(
+    ttk.Label(frame, text="Tally HTTP URL").grid(row=3, column=0, sticky="w")
+    tally_http = tk.StringVar(value=cfg.tally_http_url)
+    ttk.Entry(frame, textvariable=tally_http, width=50).grid(
         row=3, column=1, sticky="we", pady=4
     )
 
-    ttk.Label(frame, text="Tally HTTP URL").grid(row=4, column=0, sticky="w")
-    tally_http = tk.StringVar(value=cfg.tally_http_url)
-    ttk.Entry(frame, textvariable=tally_http, width=50).grid(
-        row=4, column=1, sticky="we", pady=4
-    )
-
-    ttk.Label(frame, text="Sync every (minutes)").grid(row=5, column=0, sticky="w")
+    ttk.Label(frame, text="Sync every (minutes)").grid(row=4, column=0, sticky="w")
     interval = tk.StringVar(value=str(cfg.sync_interval_minutes))
     ttk.Entry(frame, textvariable=interval, width=10).grid(
-        row=5, column=1, sticky="w", pady=4
+        row=4, column=1, sticky="w", pady=4
     )
 
     def on_save():
@@ -82,7 +76,6 @@ def open_setup(initial: ConnectorConfig | None = None) -> bool:
             ConnectorConfig(
                 api_url=api_url.get().strip(),
                 api_key=api_key.get().strip(),
-                tally_dsn=tally_dsn.get().strip() or "TallyODBC_9000",
                 tally_http_url=tally_http.get().strip() or "http://localhost:9000",
                 sync_interval_minutes=mins,
             )
@@ -91,7 +84,7 @@ def open_setup(initial: ConnectorConfig | None = None) -> bool:
         root.destroy()
 
     btns = ttk.Frame(frame)
-    btns.grid(row=6, column=0, columnspan=2, pady=(16, 0), sticky="e")
+    btns.grid(row=5, column=0, columnspan=2, pady=(16, 0), sticky="e")
     ttk.Button(btns, text="Cancel", command=root.destroy).pack(side="right", padx=4)
     ttk.Button(btns, text="Save", command=on_save).pack(side="right", padx=4)
 

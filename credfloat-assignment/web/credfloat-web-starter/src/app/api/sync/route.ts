@@ -79,6 +79,10 @@ const syncSchema = z.object({
   invoices: z.array(invoiceSchema).optional().default([]),
   receipts: z.array(receiptSchema).optional().default([]),
   day_book: z.array(ledgerEntrySchema).optional().default([]),
+  // When true, /api/sync upserts only — the caller is responsible for hitting
+  // /api/sync/allocate in chunks. Lets the connector keep each function
+  // invocation under Vercel's 60s cap on large multi-hundred-party syncs.
+  skip_allocation: z.boolean().optional().default(false),
 });
 
 export async function POST(req: NextRequest) {
@@ -110,7 +114,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { synced_at, companies, parties, invoices, receipts, day_book } = parsed.data;
+  const { synced_at, companies, parties, invoices, receipts, day_book, skip_allocation } =
+    parsed.data;
   const syncedAt = new Date(synced_at);
 
   // Prefer the explicit SEED_FIRM_ID env var (stable across renames); fall
@@ -633,12 +638,14 @@ export async function POST(req: NextRequest) {
   }
 
   const dirtyList = [...dirtyPartyIds];
-  for (let i = 0; i < dirtyList.length; i += ALLOC_CONCURRENCY) {
-    const batch = dirtyList.slice(i, i + ALLOC_CONCURRENCY);
-    const summaries = await Promise.all(batch.map(allocateOne));
-    for (const s of summaries) {
-      allocInvoicesTouched += s.invoicesTouched;
-      allocAdvanceTotal += s.advanceLeft;
+  if (!skip_allocation) {
+    for (let i = 0; i < dirtyList.length; i += ALLOC_CONCURRENCY) {
+      const batch = dirtyList.slice(i, i + ALLOC_CONCURRENCY);
+      const summaries = await Promise.all(batch.map(allocateOne));
+      for (const s of summaries) {
+        allocInvoicesTouched += s.invoicesTouched;
+        allocAdvanceTotal += s.advanceLeft;
+      }
     }
   }
 
@@ -768,8 +775,12 @@ export async function POST(req: NextRequest) {
         partiesProcessed: dirtyPartyIds.size,
         invoicesUpdated: allocInvoicesTouched,
         advanceTotal: Math.round(allocAdvanceTotal * 100) / 100,
+        skipped: skip_allocation,
       },
     },
+    // When skip_allocation=true the caller must POST these party ids back to
+    // /api/sync/allocate in chunks to finish the run.
+    pendingAllocationPartyIds: skip_allocation ? dirtyList : [],
     durationMs,
     timestamp: new Date().toISOString(),
   });
