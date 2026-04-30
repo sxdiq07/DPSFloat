@@ -15,7 +15,7 @@ from . import config as config_mod
 from .config import ConnectorConfig
 
 
-DEFAULT_API_URL = "https://app.credfloat.in/api/sync"
+DEFAULT_API_URL = "https://dps-float.vercel.app/api/sync"
 
 
 def open_setup(initial: ConnectorConfig | None = None) -> bool:
