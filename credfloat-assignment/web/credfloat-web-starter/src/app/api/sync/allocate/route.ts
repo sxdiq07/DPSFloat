@@ -9,7 +9,10 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const bodySchema = z.object({
-  partyIds: z.array(z.string().uuid()).min(1).max(50),
+  // Party ids come from our own DB — historical rows are CUIDs, newer ones
+  // randomUUID. Validating just non-empty is enough; bad ids return empty
+  // result sets from Prisma rather than misallocating anything.
+  partyIds: z.array(z.string().min(1)).min(1).max(50),
 });
 
 // Bearer auth uses the same SYNC_API_KEY as /api/sync.
